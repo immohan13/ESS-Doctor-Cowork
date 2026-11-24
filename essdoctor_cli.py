@@ -66,7 +66,33 @@ def _manifest_instructions(obj) -> tuple[str, str] | None:
     return None
 
 
+def _component_instructions(text: str) -> str | None:
+    """Instructions block of a Copilot Studio instructions component (botcomponent.data, kind: GptComponentMetadata)."""
+    lines = text.splitlines()
+    if not any(ln.strip() == "kind: GptComponentMetadata" for ln in lines[:5]):
+        return None
+    for i, ln in enumerate(lines):
+        m = re.match(r"^(\s*)instructions:\s*[|>][-+]?\s*$", ln)
+        if not m:
+            continue
+        key, body, out = len(m.group(1)), None, []
+        for nxt in lines[i + 1:]:
+            if nxt.strip():
+                ind = len(nxt) - len(nxt.lstrip())
+                if ind <= key:
+                    break
+                body = ind if body is None else body
+                out.append(nxt[body:] if ind >= body else nxt.strip())
+            else:
+                out.append("")
+        return "\n".join(out).rstrip()
+    return None
+
+
 def _from_text(text: str, name: str, source: str) -> AgentDoc | None:
+    component = _component_instructions(text)
+    if component:
+        return from_instructions(component, name, source)
     stripped = text.lstrip()
     if stripped.startswith("{") or stripped.startswith("["):
         try:
@@ -474,6 +500,35 @@ def cmd_practices(a) -> str:
     return "\n".join(md)
 
 
+def cmd_component_update(a) -> str:
+    """Replace only the instructions block of an instructions component YAML; every other line stays as it was."""
+    text = _text(_read(a.component))
+    new = _text(_read(a.instructions)).replace("\r\n", "\n").rstrip("\n")
+    lines = text.replace("\r\n", "\n").split("\n")
+    if not any(ln.strip() == "kind: GptComponentMetadata" for ln in lines[:5]):
+        raise InputError("This isn't an instructions component (kind: GptComponentMetadata). Use the data value of the "
+                         "agent's botcomponent with componenttype 15.")
+    for i, ln in enumerate(lines):
+        m = re.match(r"^(\s*)instructions:\s*[|>][-+]?\s*$", ln)
+        if not m:
+            continue
+        key, body, j = len(m.group(1)), None, i + 1
+        while j < len(lines) and (not lines[j].strip() or len(lines[j]) - len(lines[j].lstrip()) > key):
+            if lines[j].strip() and body is None:
+                body = len(lines[j]) - len(lines[j].lstrip())
+            j += 1
+        while j > i + 1 and not lines[j - 1].strip():
+            j -= 1
+        pad = " " * (body if body is not None else key + 2)
+        block = [m.group(1) + "instructions: |-"] + [(pad + t) if t.strip() else "" for t in new.split("\n")]
+        out = lines[:i] + block + lines[j:]
+        Path(a.out).parent.mkdir(parents=True, exist_ok=True)
+        Path(a.out).write_text("\n".join(out), encoding="utf-8")
+        return (f"Wrote {a.out}: instructions block replaced ({len(new):,} characters, {len(new.splitlines())} lines); "
+                f"{len(out) - len(block)} other lines unchanged.")
+    raise InputError("No 'instructions: |' block found in the component.")
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="essdoctor", description="ESS Doctor: check, fix and troubleshoot Employee Self-Service agents.")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -539,6 +594,12 @@ def main(argv: list[str] | None = None) -> int:
 
     p = sub.add_parser("practices", help="List the authoring practices that are checked")
     p.set_defaults(fn=cmd_practices)
+
+    p = sub.add_parser("component-update", help="Put new instructions into an instructions component YAML (botcomponent data)")
+    p.add_argument("component", help="The component's data value (kind: GptComponentMetadata)")
+    p.add_argument("instructions", help="The new instructions text")
+    p.add_argument("--out", default="outputs/component_data.yml")
+    p.set_defaults(fn=cmd_component_update)
 
     a = ap.parse_args(argv)
     try:

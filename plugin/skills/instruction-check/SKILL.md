@@ -9,9 +9,24 @@ You help a maker who customized an ESS agent (HR, IT or Hub) find which instruct
 
 ## Inputs
 
-- **Current instructions** (required): pasted text, a `.txt`/`.md` file, the agent YAML, a declarative agent manifest (`.json`) or the agent export package (`.zip`). If the maker pastes text, save it to `inputs/current.txt` first.
+- **Current instructions** (required): pasted text, a `.txt`/`.md` file, the agent YAML, a declarative agent manifest (`.json`), the agent export package (`.zip`), or the agent's instructions component read from Copilot Studio (see below). If the maker pastes text, save it to `inputs/current.txt` first.
 - **Previous version** (optional, strongly recommended when something "stopped working"): same formats. Save to `inputs/previous.txt`.
 - **Persona** (optional): `hr`, `it` or `hub`. The engine guesses from the agent name; ask only if the name doesn't say.
+
+## Read the agent from Copilot Studio (no copying)
+
+If the **Business apps (preview)** plugin is installed and connected, read the instructions straight from the agent's Power Platform environment instead of asking the maker to copy them:
+
+1. Ask for the environment and agent name (or find them: `/businessapps/me` lists environments; `SELECT name, schemaname, botid FROM bot` lists agents).
+2. Run read-only queries with `/businessapps/environments/<environment>/query`:
+   - `SELECT botid, name, schemaname FROM bot WHERE name LIKE '%<agent name>%'`
+   - `SELECT botcomponentid, data, modifiedon FROM botcomponent WHERE parentbotid = '<botid>' AND componenttype = 15 AND statecode = 0` (the instructions; if there are several, use the most recently modified)
+   - Optional context: `SELECT name, componenttype FROM botcomponent WHERE parentbotid = '<botid>' AND componenttype IN (9, 16)` (topics and knowledge sources)
+3. Save the `data` value exactly as returned to `inputs/current.yml` and pass that file to the engine. It reads the instructions block and numbers lines the way Copilot Studio shows them. Keep the `botcomponentid` for writing a fix back.
+4. These are the saved (draft) instructions, which the next Publish ships. If the maker is investigating a conversation, the instructions that ran may differ; a DevUI export shows those.
+5. If the environment isn't found, the connection can't reach it (another tenant, no access, or not in the list the connector returns). Say so and ask the maker to paste the instructions instead.
+
+If the plugin isn't installed, ask the maker to paste the instructions, and mention they can skip copying next time: **Plugins > search "Business apps" > Install > Connect** (one-time sign-in, no admin setup).
 
 ## Run
 
@@ -39,7 +54,17 @@ python3 scripts/essdoctor.py practices
 
 ## Applying a fix
 
-The maker applies the new instructions in Copilot Studio: open the agent, **Overview > Instructions > Edit**, replace the text with the fixed file's content, save, **Publish**, then test in a new chat. For agents under ALM (Git), the change goes into the agent's instructions file in the repo and through the normal deploy. Never claim you changed the agent yourself.
+The maker applies the new instructions in Copilot Studio: open the agent, **Overview > Instructions > Edit**, replace the text with the fixed file's content, save, **Publish**, then test in a new chat. For agents under ALM (Git), the change goes into the agent's instructions file in the repo and through the normal deploy.
+
+When the instructions were read through the Business apps connector, you can write the fix back, but only after the maker explicitly asks you to:
+
+1. Show the lines that change (the fix report) and confirm the agent and environment.
+2. Build the new component: `python3 scripts/essdoctor.py component-update inputs/current.yml outputs/fixed_instructions.txt --out outputs/component_data.yml`. It replaces only the instructions block; every other line stays as read.
+3. Update the `data` column of that `botcomponent` record (the `botcomponentid` you read) with the content of `outputs/component_data.yml`. Cowork asks the maker to approve the write.
+4. Read the record back and run `check` on it to confirm the change landed.
+5. Publish: if the connector offers the Dataverse `PvaPublish` action for the bot, run it with the maker's approval. Otherwise tell the maker to select **Publish** in Copilot Studio. Either way, ask them to test in a new chat.
+
+Never write without the maker's approval, never change other components, and never claim a change you didn't verify by reading it back.
 
 ## Rules
 

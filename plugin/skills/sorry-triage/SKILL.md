@@ -19,7 +19,7 @@ Ask for one file per failing conversation, uploaded together or as one `.zip`:
    Response: <what the agent replied>
    ```
 
-Also ask for the agent's **current instructions** so the report can say which implicated rules are already fixed. 10–30 conversations give a reliable picture; a few are enough to start.
+Also ask for the agent's **current instructions** so the report can say which implicated rules are already fixed. If the **Business apps (preview)** plugin is connected, read them from Copilot Studio instead of asking the maker to copy them (follow "Read the agent from Copilot Studio" in the `instruction-check` skill) and pass the saved component file with `--instructions`. 10–30 conversations give a reliable picture; a few are enough to start.
 
 ## Run
 

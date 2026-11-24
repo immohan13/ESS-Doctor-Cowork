@@ -13,7 +13,7 @@ You explain one conversation turn of an ESS agent, using the evidence the maker 
 2. **Developer mode card** (quickest, no admin needed): in a chat with the agent send `-developer on`, ask the failing question again, copy the debug card, then send `-developer off`. The card can be the text card or the JSON card (`capabilitiesDeveloperInfo`, `pluginDeveloperInfo`, `agentMetaData`); both work. The card doesn't contain the question or the answer, so always pass them with `--question` and `--response` (from the chat or from `Question:` / `Response:` lines the maker put at the top of the file). The report diagnoses tool selection, each action's HTTP status and latency (401/403/404/429/5xx, timeouts), knowledge searches with zero results, searches that returned documents unrelated to the question, and "no function selected".
 3. **Purview audit export**: a compliance admin searches the Purview audit log for `CopilotInteraction` records for the agent and time window and exports CSV. Useful to see which agent version ran when.
 
-Also ask for the agent's **current instructions** when available, so the report can say whether the conversation ran on a different version.
+Also ask for the agent's **current instructions** when available, so the report can say whether the conversation ran on a different version. If the **Business apps (preview)** plugin is connected, read them from Copilot Studio instead of asking the maker to copy them; follow "Read the agent from Copilot Studio" in the `instruction-check` skill and pass the saved component file with `--instructions`. A DevUI export already contains the instructions that ran, so this is only needed for developer mode cards and Purview exports.
 
 ## Run
 
@@ -31,7 +31,7 @@ The DevUI report lists all turns when an export has more than one; analyze the o
 
 ## Respond
 
-1. Show the report as returned. Both DevUI and developer mode reports use the same layout: user question, agent response, what happened, where it went wrong (stage table), instruction check, key details, planner/tool selection, search/tool execution, synthesis and safety, instruction lines likely responsible, recommended next steps, and what the evidence can't see; DevUI adds the instructions that ran and each model call. Don't drop sections or change verdicts.
+1. Show the report as returned, inside one `text` code block, line for line. Don't shorten, merge or reword lines (for example, keep each Key details line separate). Both DevUI and developer mode reports use the same layout: user question, agent response, what happened, where it went wrong (stage table), instruction check, key details, planner/tool selection, search/tool execution, synthesis and safety, instruction lines likely responsible, recommended next steps, and what the evidence can't see; DevUI adds the instructions that ran and each model call. Don't drop sections or change verdicts.
 2. Then summarize in 3–5 sentences: the stage that failed, the most likely cause, and the specific instruction line and fix.
 3. Offer to apply the fix with the `instruction-check` skill (`fix`, then `check`), using the instructions that ran if the maker didn't upload newer ones.
 

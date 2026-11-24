@@ -66,6 +66,14 @@ $env:PYTHONPATH = "engine"; python -m pytest tests
 
 Custom plugins don't run in Cowork on mobile.
 
+## Read agents directly from Copilot Studio
+
+Makers who add Microsoft's **Business apps (preview)** plugin in Cowork (Plugins > search "Business apps" > Install > Connect; one-time sign-in, no admin setup) don't need to copy instructions. The `instruction-check`, `conversation-xray` and `sorry-triage` skills read the agent's instructions component (`botcomponent`, `componenttype` 15) from its Power Platform environment with read-only queries, save the `data` value, and pass it to the engine, which numbers lines the way Copilot Studio shows them.
+
+With the maker's approval, `instruction-check` can write a fix back: `essdoctor.py component-update` replaces only the instructions block of the component, Cowork asks before the write, and the skill reads the record back to confirm. Publishing uses the Dataverse `PvaPublish` action when the connector offers it; otherwise the maker selects Publish in Copilot Studio.
+
+Limits: the connector only reaches environments it lists for the signed-in user; if the agent's environment isn't found, makers paste the instructions instead. Agents built outside Copilot Studio (Agents Toolkit, Agent Builder) aren't in Dataverse; makers upload the app package or paste the instructions.
+
 ## Limits
 
 - Skill names must be kebab-case and match their folder; `build.py` checks this.
