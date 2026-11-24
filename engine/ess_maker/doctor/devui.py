@@ -236,6 +236,15 @@ def _norm(s: str) -> str:
     return re.sub(r"\s+", " ", s or "").strip()
 
 
+def _relevant(f, question: str) -> bool:
+    """Restriction findings only explain a turn when the question touches their subject."""
+    if not re.search(r"BLOCK|RESTRICT|REFUSAL|OVERRIDE|JURISDICTION", f.rule_id):
+        return True
+    words = {w for w in re.findall(r"[a-z]{5,}", (question or "").lower())}
+    text = (f.current or "").lower()
+    return bool(words) and any(w in text or w.rstrip("s") in text for w in words)
+
+
 def build(parsed: dict, turn_index: int = 0, *, current=None, findings: list | None = None) -> str:
     t = parsed["turns"][turn_index]
     q, resp = t["question"], t["response"]
@@ -280,7 +289,14 @@ def build(parsed: dict, turn_index: int = 0, *, current=None, findings: list | N
     L += _section("Agent response"); L.append(resp or "(no response)")
 
     L += _section("What happened")
-    if check and check["followed"]:
+    late = bool(check and check["followed"] and t["tool_calls"])
+    if late:
+        queries = [q2 for r in runs for q2 in r["queries"]] or [c["name"] for c in search_calls]
+        L.append(f"The agent declined, as its instructions require, but only after {len(t['tool_calls'])} tool call(s)"
+                 + (f", including searches for: {' | '.join(queries[:3])[:300]}" if queries else "") + ". "
+                 "The restriction is applied when the answer is written, not before routing, so the agent searches the "
+                 "restricted topic first: slower answers, and related content can leak into the reply.")
+    elif check and check["followed"]:
         L.append("The agent declined, as its instructions require for this question.")
     elif why:
         L.append(why)
@@ -396,7 +412,7 @@ def build(parsed: dict, turn_index: int = 0, *, current=None, findings: list | N
     linked, risky = [], []
     if first_fail or (check and not check["followed"]):
         want = {"1": {"routing", "tool"}, "2": {"search"}, "3": {"synthesis", "rai"}, "4": {"render"}}.get(first_fail or "1", set())
-        linked = [f for f in maker if f.stage in want] or maker
+        linked = [f for f in maker if f.stage in want and _relevant(f, q)]
         if linked:
             L += _section("Instruction lines likely responsible")
             for f in linked[:5]:
@@ -417,6 +433,10 @@ def build(parsed: dict, turn_index: int = 0, *, current=None, findings: list | N
 
     L += _section("Recommended next steps")
     n = 0
+    if late:
+        ln = check["rules"][0]["line"] if check["rules"] else None
+        n += 1; L.append(f"{n}. Make line {ln} a routing rule that runs before any search: when the question matches it, reply "
+                         "with the approved message straight away. Keep the exact reply wording next to the rule, then re-test.")
     if check and check["followed"] is False:
         n += 1; L.append(f"{n}. Put the restriction first in '#Routing decision tree' so 'policy → KB search' can't win, then re-test.")
     if stage["1"] == "FAILED" and not check:

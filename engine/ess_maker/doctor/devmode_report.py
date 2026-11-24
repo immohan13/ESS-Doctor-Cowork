@@ -61,7 +61,13 @@ def build(text: str, *, question: str = "", response: str = "", current=None) ->
     L.append(response or "Not shown on the card. Add the agent's answer to check the answer stage.")
 
     L += _section("What happened")
-    L.append(diag["likely_cause"])
+    caps_ran = card.get("exec_caps") or []
+    late = bool(check and check["followed"] and caps_ran)
+    if late:
+        L.append("The agent declined, as its instructions require, but only after searching knowledge for the restricted "
+                 "question. The restriction is applied when the answer is written, not before routing.")
+    else:
+        L.append(diag["likely_cause"])
     L += [f"- {h}" for h in diag["happened"]]
 
     L += _section("Where it went wrong")
@@ -130,7 +136,11 @@ def build(text: str, *, question: str = "", response: str = "", current=None) ->
         L.append("Upload the agent's instructions with the card to see which lines steered this question away from tools or into a refusal.")
 
     L += _section("Recommended next steps")
-    steps = list(diag["next_steps"])
+    steps = [s for s in diag["next_steps"] if not (response and s.startswith("Pass the agent's response"))]
+    if late:
+        ln = check["rules"][0]["line"] if check["rules"] else "?"
+        steps = [f"Make line {ln} a routing rule that runs before any search: when the question matches it, reply with the "
+                 "approved message straight away. Keep the exact reply wording next to the rule, then re-test."]
     for f in linked[:3]:
         steps.append(f"Line {', '.join(map(str, f.lines[:3]))} — {f.title}. Change: {f.fix[:300]}")
     steps.append("For the instructions that ran, every model call and the search funnel, export the same conversation from DevUI.")

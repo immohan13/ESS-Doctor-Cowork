@@ -45,7 +45,8 @@ _STOP = {"what", "which", "where", "when", "does", "about", "with", "from", "tha
          # Generic HR words appear in many rules; matching on them alone isn't evidence the rule targets the question.
          "policy", "policies", "benefit", "benefits", "process", "procedure", "procedures", "request", "requests",
          "information", "support", "guidance", "question", "questions", "details", "status", "change", "changes"}
-_REFUSAL = re.compile(r"unable to assist|can['’]t help|cannot help|can['’]t assist|not able to (help|assist)|"
+_REFUSAL = re.compile(r"unable to (assist|help|compare|provide|share|discuss|answer)|can['’]t (help|assist|compare|provide|share|discuss)|"
+                      r"cannot (help|assist|compare|provide|share|discuss)|not able to (help|assist|compare|provide|share|discuss|answer)|"
                       r"couldn['’]t find|please contact the people team", re.I)
 
 

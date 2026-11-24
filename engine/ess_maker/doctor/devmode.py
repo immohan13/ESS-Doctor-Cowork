@@ -240,8 +240,20 @@ class _Obj(list):
     """JSON object as ordered (key, value) pairs, keeping duplicate keys like JsonElement.EnumerateObject."""
 
 
+_ESCAPE = re.compile(r"\\(.)", re.S)
+
+
+def _repair_json(text: str) -> str:
+    """Copilot's developer card keeps markdown escapes such as \\# inside JSON strings; make them literal backslashes."""
+    return _ESCAPE.sub(lambda m: m.group(0) if m.group(1) in '"\\/bfnrtu' else "\\\\" + m.group(1), text)
+
+
 def _load_json(text: str):
-    return json.loads(text, object_pairs_hook=_Obj, parse_int=_Num, parse_float=_Num, parse_constant=_reject_constant)
+    kw = dict(object_pairs_hook=_Obj, parse_int=_Num, parse_float=_Num, parse_constant=_reject_constant)
+    try:
+        return json.loads(text, **kw)
+    except ValueError:
+        return json.loads(_repair_json(text), **kw)
 
 
 def _reject_constant(name: str):
@@ -661,7 +673,10 @@ def _parse_structured(text: str) -> Card | None:
     try:
         doc = json.loads(t)
     except ValueError:
-        return None
+        try:
+            doc = json.loads(_repair_json(t))
+        except ValueError:
+            return None
     if not isinstance(doc, dict) or _ci(doc, *_STRUCTURED_KEYS) is None:
         return None
     card = Card()
@@ -824,7 +839,7 @@ class _Diagnosis:
 
 _STOP = set("what when where which who whom whose why how does have about with from that this there their them they your yours mine "
             "tell show give find need want please could would should will can the and for are is was were been being any some much many "
-            "more most also just into onto over under than then only very".split())
+            "more most also just into onto over under than then only very compare explain check know list help mean means".split())
 
 
 def _off_topic(knowledge: list[ExecEntry], question: str):
@@ -997,12 +1012,13 @@ def _diagnose_card(card: Card, question: str) -> _Diagnosis:
         docs = "; ".join(c.hits[:3])
         d.likely_cause = (
             f"Knowledge search ran ({c.name or 'knowledge'}) and returned {c.results} result(s), but none of them mention "
-            f"{' or '.join(f'“{w}”' for w in missing)}: {docs}. The knowledge source most likely has no content on this topic, "
-            "so the agent can only answer from unrelated pages or say it couldn't find anything."
+            f"{' or '.join(f'“{w}”' for w in missing)}: {docs}. Either the knowledge source has no content on this topic, "
+            "or the topic is one the agent shouldn't answer and the restriction isn't stopping the search."
         )
-        d.step(f"Add a document about {missing[0]} to the knowledge source ({', '.join(card.scopes[:2]) or 'the configured site'}) and wait for it to finish indexing.")
-        d.step("If the content exists elsewhere, add that site or library as a knowledge source, or check the signed-in user can open it.")
-        d.step("If the agent should not answer this topic, add a restriction rule that declines it with a clear next step instead of searching.")
+        d.step(f"If the agent should answer questions about “{missing[0]}”, add a document on it to the knowledge source "
+               f"({', '.join(card.scopes[:2]) or 'the configured site'}) and wait for it to finish indexing.")
+        d.step("If it shouldn't, check the instructions: the restriction should decline before searching, with a clear next step. "
+               "Upload the instructions with the card, or export the conversation from DevUI, to see which line applies.")
     elif not any_exec:
         d.set_stages(FAILED, NOT_RUN)
         d.likely_cause = "Copilot answered without searching the agent's knowledge or calling an action, so the answer isn't grounded in your sources."
