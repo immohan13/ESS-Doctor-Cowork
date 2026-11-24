@@ -1,0 +1,15 @@
+dist/
+__pycache__/
+*.pyc
+.venv/
+.env
+
+# Customer / tenant data (never commit)
+conversationHistory-*.json
+*botContent*.yml
+*BotContent*.yml
+Evaluate *.csv
+*evalset*.csv
+RAI_Event_Analysis*.txt
+*.transcript.json
+
