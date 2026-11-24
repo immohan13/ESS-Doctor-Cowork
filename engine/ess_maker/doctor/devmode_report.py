@@ -15,8 +15,9 @@ from ess_maker.doctor.rules import PIPELINE_ORDER, validate
 
 _STAGE_KEYS = ["planner", "search", "synthesis", "render"]
 _WANT = {"planner": {"routing", "tool"}, "search": {"search", "routing"}, "synthesis": {"synthesis", "rai"}, "render": {"render"}}
-_LABEL = {"agentId": "Agent ID", "agentScope": "Agent scope", "agentVersion": "Agent version", "conversationId": "Conversation ID",
-          "requestId": "Request ID", "capabilities": "Capabilities", "matchedFunctions": "Matched functions",
+_LABEL = {"agentName": "Agent", "agentId": "Agent ID", "agentScope": "Agent scope", "agentVersion": "Agent version",
+          "conversationId": "Conversation ID", "requestId": "Request ID", "capabilities": "Capabilities",
+          "knowledgeScopes": "Knowledge scopes", "matchedFunctions": "Matched functions",
           "selectedFunctions": "Selected functions", "executedCapabilities": "Executed capabilities",
           "executedActions": "Executed actions"}
 
@@ -93,6 +94,8 @@ def build(text: str, *, question: str = "", response: str = "", current=None) ->
         L.append("Nothing was executed for this question." if not card.get("no_exec_details") else "No function execution details were returned.")
     for e in caps:
         L.append("  Knowledge: " + _entry(e) + (f"  search text: {e['search_text']}" if e.get("search_text") else ""))
+        for h in (e.get("hits") or [])[:8]:
+            L.append(f"      found: {h}")
     for e in acts:
         L.append("  Action: " + _entry(e) + (f"  {e.get('method') or ''} {e['url']}".rstrip() if e.get("url") else ""))
         if e.get("error"):

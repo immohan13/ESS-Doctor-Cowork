@@ -35,7 +35,7 @@ python3 scripts/essdoctor.py sorry-triage inputs/evidence.zip --instructions inp
 3. Offer the next actions:
    - Fix the instruction rules with the `instruction-check` skill (`fix`, then `check`).
    - X-ray any single turn in depth with the `conversation-xray` skill.
-   - Draft short messages to the knowledge owner (questions where search found nothing, with the queries) and to the connection admin (connector failures, with the HTTP status). Send only if the maker asks.
+   - Draft short messages to the knowledge owner (questions where search found nothing relevant, with the queries) and to the connection admin (connector failures, with the HTTP status). Send only if the maker asks.
 
 ## Rules
 

@@ -47,7 +47,7 @@ Collect 10–30 cards or exports of conversations that ended in sorry, upload th
 | Declined by an instruction rule | The question matches a restriction; no tool ran | Maker: narrow the rule |
 | Declined without searching | Tools offered, none called, no rule asked for it | Maker: routing and grounding rules |
 | No topic, action or knowledge matched | "No functions selected" on the card | Maker: topic and action descriptions |
-| Knowledge search found nothing | Search ran, 0 results kept | Knowledge owner; maker if the query was enriched (job level, country) |
+| Knowledge search found nothing relevant | Search ran but returned 0 results, or only documents unrelated to the question | Knowledge owner; maker if the query was enriched (job level, country) |
 | Search found content but the agent still declined | Results kept, answer still abstained | Maker: abstain rules or query |
 | Topic, action or connector failed | HTTP 401/403/404/429/5xx or timeout on the card | Connection or backend admin |
 | Safety filter blocked the answer | Classifier triggered in DevUI | Maker: moderation and wording |

@@ -20,7 +20,7 @@ A two-week playbook for an ESS team whose agent too often answers with an apolog
    | Cause | Owner |
    | --- | --- |
    | Declined by an instruction rule; declined without searching; no topic matched; found content but still declined | Agent maker |
-   | Knowledge search found nothing | Knowledge owner (maker if the query was enriched) |
+   | Knowledge search found nothing relevant | Knowledge owner (maker if the query was enriched) |
    | Topic, action or connector failed | Connection or backend admin |
    | Safety filter blocked; throttled | Maker (moderation) or platform |
 

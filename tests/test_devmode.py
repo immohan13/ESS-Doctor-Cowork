@@ -77,3 +77,45 @@ def test_json_card_is_flattened_and_parsed():
     assert r["card"]["exec_actions"][0]["http"] == 401
     assert r["stages"] == {"planner": "ok", "search": "failed", "synthesis": "unknown", "render": "unknown"}
     assert r["likely_cause"].startswith("The Workday.getBalance action reached wd5.myworkday.com but the call was rejected")
+
+
+def _developer_card(titles: list[str], extract: str) -> str:
+    hits = [{"resourceType": "File", "rank": i, "extracts": [{"text": extract}], "resourceMetadata": {"title": t}}
+            for i, t in enumerate(titles)]
+    return json.dumps({
+        "capabilitiesDeveloperInfo": {
+            "enabledCapabilities": [{"capabilityName": "OneDriveAndSharePoint", "scopes": [{"Url": "https://contoso.sharepoint.com/sites/HR"}]}],
+            "capabilityExecutions": [{"name": "OneDriveAndSharePoint", "status": 1,
+                                      "additionalDebugInfo": {"queryString": "", "totalResultCount": len(hits), "retrievalHits": hits}}],
+        },
+        "pluginDeveloperInfo": {"enabledPlugins": [], "matchedFunctionCandidates": [],
+                                "functionsSelectedForInvocation": [], "functionExecutions": []},
+        "agentMetaData": {"agentId": "", "agentVersion": "draft", "conversationId": "c-1", "requestId": "r-1", "agentName": "Contoso HR"},
+    })
+
+
+def test_developer_json_card_with_question_header_flags_unrelated_results():
+    card = "Question: what is the relocation benefit\nResponse: I couldn't find that.\n" + _developer_card(
+        ["Pay-Trends-2025", "Pay-Trends-2025", "Compensation-Guide"], "Salary bands and compensation reviews.")
+
+    q, resp, _ = devmode.split_header(card)
+    r = devmode.diagnose(card, q, resp)
+
+    assert q == "what is the relocation benefit"
+    assert r["card"]["agent_name"] == "Contoso HR"
+    assert r["card"]["capabilities"] == ["OneDriveAndSharePoint"]
+    assert r["card"]["no_actions"] is True
+    assert r["card"]["exec_caps"][0]["results"] == 3
+    assert r["card"]["exec_caps"][0]["hits"] == ["Pay Trends 2025 (2)", "Compensation Guide"]
+    assert r["stages"]["search"] == "failed"
+    assert "relocation" in r["likely_cause"]
+
+
+def test_developer_json_card_with_matching_results_has_no_failure():
+    card = _developer_card(["Relocation-Policy"], "Relocation benefit covers moving costs.")
+
+    r = devmode.diagnose(card, "what is the relocation benefit")
+
+    assert r["stages"]["planner"] == "ok"
+    assert r["stages"]["search"] == "ok"
+    assert r["likely_cause"].startswith("No failure was found")

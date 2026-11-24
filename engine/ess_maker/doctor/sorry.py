@@ -42,7 +42,7 @@ CAUSES = {c.id: c for c in [
     Cause("no-tool-match", "No topic, action or knowledge matched", "Agent maker (descriptions and instructions)",
           "Rewrite the description of the topic or action that should handle this question using employees' words, and "
           "check the instructions don't steer it away from tools.", ("routing", "tool")),
-    Cause("search-empty", "Knowledge search found nothing", "Knowledge owner (content), then maker",
+    Cause("search-empty", "Knowledge search found nothing relevant", "Knowledge owner (content), then maker",
           "Check a document that answers this exists and is indexed. If it does, compare the search query with the "
           "document title; remove query enrichment (job level, country) and add synonyms to the terminology rules.",
           ("search",)),
@@ -234,7 +234,7 @@ def build(result: dict) -> str:
         L += ["", "Agent versions in this evidence: " + ", ".join(f"{a or 'agent'} {v}" for a, v in versions) + "."]
     L += ["", "### Next steps", "",
           "1. Fix the biggest maker-owned cause first: run the instruction check on the current instructions and apply the fixes for the rules above.",
-          "2. Send the content-owned questions (search found nothing) to the knowledge owner with the queries listed.",
+          "2. Send the content-owned questions (search found nothing relevant) to the knowledge owner with the queries listed.",
           "3. Send connector failures to the connection admin with the developer mode card.",
           "4. Re-run the same questions after publishing and triage the new exports to confirm the sorry share dropped."]
     return "\n".join(L)

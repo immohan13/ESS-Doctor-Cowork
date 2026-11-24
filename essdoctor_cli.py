@@ -372,7 +372,8 @@ def cmd_xray(a) -> str:
     if not devmode.looks_like_devmode(text):
         raise InputError("Couldn't recognise this evidence. Upload a DevUI conversation export (JSON), a Purview audit "
                          "export (CSV with an AuditData column), or paste the developer mode (-developer on) card text.")
-    return "```text\n" + devmode_report.build(text, question=a.question, response=a.response, current=current) + "\n```"
+    hq, hr, _ = devmode.split_header(text)
+    return "```text\n" + devmode_report.build(text, question=a.question or hq, response=a.response or hr, current=current) + "\n```"
 
 
 def _evidence_files(paths: list[str]) -> list[tuple[str, bytes]]:
@@ -403,9 +404,13 @@ def cmd_sorry(a) -> str:
         if isinstance(obj, dict) and "requests" in obj and "messages" in obj:
             sources.append(("devui", name, devui.parse(obj)))
         elif devmode.looks_like_devmode(text):
-            q = re.search(r"(?im)^\s*(?:question|user question|prompt)\s*[:=]\s*(.+)$", text)
-            r = re.search(r"(?im)^\s*(?:response|answer|agent response|agent said)\s*[:=]\s*(.+)$", text)
-            q, r = (q.group(1).strip() if q else ""), (r.group(1).strip() if r else "")
+            q, r, _ = devmode.split_header(text)
+            if not q:
+                m = re.search(r"(?im)^\s*(?:question|user question|prompt)\s*[:=]\s*(.+)$", text)
+                q = m.group(1).strip() if m else ""
+            if not r:
+                m = re.search(r"(?im)^\s*(?:response|answer|agent response|agent said)\s*[:=]\s*(.+)$", text)
+                r = m.group(1).strip() if m else ""
             sources.append(("devmode", name, (devmode.diagnose(text, q, r), q, r)))
         else:
             skipped.append(name)

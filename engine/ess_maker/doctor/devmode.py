@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from decimal import ROUND_HALF_UP, Decimal
 from urllib.parse import urlsplit
 
-__all__ = ["Card", "ExecEntry", "looks_like_devmode", "parse", "diagnose", "flatten_json"]
+__all__ = ["Card", "ExecEntry", "looks_like_devmode", "parse", "diagnose", "flatten_json", "split_header"]
 
 DEVMODE = "devmode"
 SOURCE_LABEL = "Developer mode debug card"
@@ -164,6 +164,8 @@ class ExecEntry:
     url: str | None = None
     error: str | None = None
     lines: list[str] = field(default_factory=list)
+    hits: list[str] = field(default_factory=list)
+    hit_text: str = ""
 
 
 @dataclass
@@ -171,10 +173,12 @@ class Card:
     """What the developer-mode card says."""
 
     agent_id: str | None = None
+    agent_name: str | None = None
     agent_version: str | None = None
     conversation_id: str | None = None
     request_id: str | None = None
     capabilities: list[str] = field(default_factory=list)
+    scopes: list[str] = field(default_factory=list)
     action_ids: list[str] = field(default_factory=list)
     matched: list[str] = field(default_factory=list)
     selected: list[str] = field(default_factory=list)
@@ -338,7 +342,7 @@ def _as_card_text(text: str) -> tuple[str, bool]:
 
 def looks_like_devmode(text: str) -> bool:
     """True when the text is a developer-mode card: the DevModeSignals regex, or a JSON card (JSON falls back to this parser)."""
-    t = _trim((text or "").lstrip("\ufeff"))
+    t = _trim(split_header(text or "")[2].lstrip("\ufeff"))
     if not t:
         return False
     if (t.startswith("{") or t.startswith("[")) and _parse_json_document(t) is not None:
@@ -578,8 +582,167 @@ def _parse_lines(text: str) -> Card:
     return card
 
 
+def _ci(d, *keys):
+    """Case-insensitive dict lookup; first key present wins."""
+    if not isinstance(d, dict):
+        return None
+    low = {str(k).lower(): v for k, v in d.items()}
+    for k in keys:
+        if k.lower() in low:
+            return low[k.lower()]
+    return None
+
+
+def _items(v) -> list:
+    return v if isinstance(v, list) else []
+
+
+def _str(v) -> str | None:
+    if v is None or isinstance(v, (dict, list)):
+        return None
+    s = _trim(str(v))
+    return s or None
+
+
+def _item_name(x) -> str | None:
+    if isinstance(x, str):
+        return _trim(x) or None
+    return _str(_ci(x, "functionName", "name", "displayName", "pluginName", "operationId", "capabilityName", "agentName", "id", "title"))
+
+
+def _structured_exec(x) -> ExecEntry:
+    e = ExecEntry(name=_item_name(x))
+    info = _ci(x, "additionalDebugInfo", "debugInfo") or {}
+    st = _ci(x, "status", "executionStatus", "state")
+    e.status = _str(st) if not isinstance(st, (int, float)) and not str(st).isdigit() else None
+    code = _ci(x, "httpStatusCode", "statusCode", "responseStatusCode", "httpStatus") or _ci(info, "httpStatusCode", "statusCode")
+    if code is not None and str(code).isdigit() and 100 <= int(code) <= 599:
+        e.http = int(code)
+    lat = _ci(x, "latencyMs", "latency", "durationMs", "duration", "elapsedMs")
+    try:
+        e.latency_ms = float(lat) if lat is not None else None
+    except (TypeError, ValueError):
+        pass
+    e.error = _str(_ci(x, "error", "errorMessage", "exception", "failureReason")) or _str(_ci(info, "error", "errorMessage"))
+    e.url = _str(_ci(x, "url", "requestUrl", "endpoint")) or _str(_ci(info, "url", "requestUrl"))
+    e.method = (_str(_ci(x, "method", "httpMethod")) or "").upper() or None
+    q = _str(_ci(info, "queryString", "query", "searchQuery", "searchText"))
+    e.search_text = q
+    total = _ci(info, "totalResultCount", "resultCount", "totalResults")
+    hits = _items(_ci(info, "retrievalHits", "results", "hits"))
+    if total is not None and str(total).isdigit():
+        e.results = int(total)
+    elif hits:
+        e.results = len(hits)
+    titles: list[str] = []
+    texts: list[str] = []
+    for h in hits:
+        meta = _ci(h, "resourceMetadata", "metadata") or {}
+        t = _str(_ci(meta, "title", "name", "fileName")) or _str(_ci(h, "title", "name"))
+        if t:
+            titles.append(re.sub(r"[-_]+", " ", t))
+        texts += [_str(_ci(x2, "text")) or "" for x2 in _items(_ci(h, "extracts", "snippets"))]
+    counts: dict[str, int] = {}
+    for t in titles:
+        counts[t] = counts.get(t, 0) + 1
+    e.hits = [f"{t} ({n})" if n > 1 else t for t, n in sorted(counts.items(), key=lambda kv: -kv[1])]
+    e.hit_text = " ".join(titles + texts).lower()
+    return e
+
+
+_STRUCTURED_KEYS = ("capabilitiesDeveloperInfo", "pluginDeveloperInfo")
+
+
+def _parse_structured(text: str) -> Card | None:
+    """The JSON developer mode card (capabilitiesDeveloperInfo, pluginDeveloperInfo, agentMetaData, ...), read field by field."""
+    t = _trim((text or "").lstrip("\ufeff"))
+    if not t.startswith("{"):
+        return None
+    try:
+        doc = json.loads(t)
+    except ValueError:
+        return None
+    if not isinstance(doc, dict) or _ci(doc, *_STRUCTURED_KEYS) is None:
+        return None
+    card = Card()
+    meta = _ci(doc, "agentMetaData", "agentMetadata") or {}
+    card.agent_id = _str(_ci(meta, "agentId"))
+    card.agent_name = _str(_ci(meta, "agentName"))
+    card.agent_version = _str(_ci(meta, "agentVersion"))
+    card.conversation_id = _str(_ci(meta, "conversationId"))
+    card.request_id = _str(_ci(meta, "requestId"))
+
+    caps = _ci(doc, "capabilitiesDeveloperInfo") or {}
+    for c in _items(_ci(caps, "enabledCapabilities")):
+        _add_name(card.capabilities, _item_name(c))
+        for s in _items(_ci(c, "scopes")):
+            u = _str(_ci(s, "Url", "url", "name")) if isinstance(s, dict) else _str(s)
+            if u and u not in card.scopes:
+                card.scopes.append(u)
+    for x in _items(_ci(caps, "capabilityExecutions")):
+        card.exec_caps.append(_structured_exec(x))
+
+    plugins = _ci(doc, "pluginDeveloperInfo")
+    if isinstance(plugins, dict):
+        enabled = _items(_ci(plugins, "enabledPlugins"))
+        card.no_actions = not enabled
+        for p in enabled:
+            _add_name(card.action_ids, _item_name(p))
+        matched = _items(_ci(plugins, "matchedFunctionCandidates", "matchedFunctions"))
+        selected = _items(_ci(plugins, "functionsSelectedForInvocation", "selectedFunctions"))
+        for m in matched:
+            _add_name(card.matched, _item_name(m))
+        for s in selected:
+            _add_name(card.selected, _item_name(s))
+        card.no_matched, card.no_selected = not matched, not selected
+        for x in _items(_ci(plugins, "functionExecutions")):
+            card.exec_actions.append(_structured_exec(x))
+        card.no_exec_details = bool(selected) and not card.exec_actions
+
+    connected = _ci(doc, "connectedAgents") or {}
+    for x in _items(_ci(connected, "connectedAgentsExcecutionInfo", "connectedAgentsExecutionInfo")):
+        e = _structured_exec(x)
+        e.name = f"Connected agent {e.name}" if e.name else "Connected agent"
+        card.exec_actions.append(e)
+
+    card.throttled = "throttl" in t.lower() or "too many requests" in t.lower()
+    for e in card.exec_caps + card.exec_actions:
+        e.ok = _outcome(e)
+        if e.ok is None and e.results:
+            e.ok = True
+    return card
+
+
+_HEADER_LINE = re.compile(r"^\s*(?P<k>question|user question|prompt|response|answer|agent response|agent said)\s*[:=]\s*(?P<v>.*)$", re.I)
+
+
+def split_header(text: str) -> tuple[str, str, str]:
+    """(question, response, card) from a card file that starts with optional "Question:" / "Response:" lines."""
+    lines = (text or "").lstrip("\ufeff").splitlines()
+    q = r = ""
+    i = 0
+    while i < len(lines):
+        if not lines[i].strip():
+            i += 1
+            continue
+        m = _HEADER_LINE.match(lines[i])
+        if not m:
+            break
+        k = m.group("k").lower()
+        if k in ("question", "user question", "prompt"):
+            q = q or m.group("v").strip()
+        else:
+            r = r or m.group("v").strip()
+        i += 1
+    return q, r, "\n".join(lines[i:]) if (q or r) else (text or "")
+
+
 def parse(text: str) -> Card:
-    """Parse a developer-mode card given as text or JSON (JSON is flattened first, like FlattenJson)."""
+    """Parse a developer-mode card given as text or JSON. The JSON card is read field by field; other JSON is flattened first."""
+    text = split_header(text)[2]
+    card = _parse_structured(text)
+    if card is not None:
+        return card
     t, _ = _as_card_text(text)
     return _parse_lines(t)
 
@@ -659,21 +822,46 @@ class _Diagnosis:
         self.stages["search"] = search
 
 
+_STOP = set("what when where which who whom whose why how does have about with from that this there their them they your yours mine "
+            "tell show give find need want please could would should will can the and for are is was were been being any some much many "
+            "more most also just into onto over under than then only very".split())
+
+
+def _off_topic(knowledge: list[ExecEntry], question: str):
+    """(entry, missing terms) when a search returned documents but none mention the question's key terms."""
+    if not question:
+        return None
+    terms = [w for w in re.findall(r"[a-z]{5,}", question.lower()) if w not in _STOP]
+    for c in knowledge:
+        if not c.hits or not c.hit_text:
+            continue
+        stems = {w: (w[:6] if len(w) >= 8 else w.rstrip("s")) for w in terms}
+        missing = [w for w, s in stems.items() if s not in c.hit_text]
+        if missing and (len(missing) * 2 >= len(terms) or max(terms, key=len) in missing):
+            return c, sorted(missing, key=len, reverse=True)
+    return None
+
+
 def _diagnose_card(card: Card, question: str) -> _Diagnosis:
     d = _Diagnosis()
+    d.detail("agentName", card.agent_name)
     d.detail("agentId", card.agent_id)
     d.detail("agentScope", _scope(card.agent_id))
     d.detail("agentVersion", card.agent_version)
     d.detail("conversationId", card.conversation_id)
     d.detail("requestId", card.request_id)
     d.detail("capabilities", ", ".join(card.capabilities))
+    d.detail("knowledgeScopes", ", ".join(card.scopes))
     d.detail("matchedFunctions", "none" if card.no_matched and not card.matched else ", ".join(card.matched))
     d.detail("selectedFunctions", "none" if card.no_selected and not card.selected else ", ".join(card.selected))
     d.detail("executedCapabilities", ", ".join(_describe_entry(e) for e in card.exec_caps))
     d.detail("executedActions", ", ".join(_describe_entry(e) for e in card.exec_actions))
     d.cannot_see.append("The answer text, and how the model used what came back. Pass the agent's response to check that step.")
     d.cannot_see.append("Why the planner picked or skipped each function; the card shows only the outcome.")
-    d.cannot_see.append("The content of search results and which documents were cited.")
+    if any(c.hits for c in card.exec_caps):
+        d.cannot_see.append("Which of the returned documents the answer cited, and the search text Copilot used.")
+    else:
+        d.cannot_see.append("The content of search results and which documents were cited.")
     d.cannot_see.append("Steps inside Copilot Studio topics or flows after the action was called.")
 
     if card.capabilities:
@@ -693,6 +881,8 @@ def _diagnose_card(card: Card, question: str) -> _Diagnosis:
 
     for c in card.exec_caps:
         d.happened.append(f"{c.name if c.name is not None else 'A capability'} ran: {_describe(c)}.")
+        if c.hits:
+            d.happened.append(f"Documents it returned: {'; '.join(c.hits[:6])}.")
     for a in card.exec_actions:
         d.happened.append(f"{a.name if a.name is not None else 'An action'} ran: {_describe(a)}.")
 
@@ -720,6 +910,7 @@ def _diagnose_card(card: Card, question: str) -> _Diagnosis:
         None,
     )
     q = f" (for example “{_head(question, 120)}”)" if question else ""
+    off_topic = _off_topic(knowledge, question)
 
     if auth is not None:
         d.set_stages(OK, FAILED)
@@ -800,6 +991,18 @@ def _diagnose_card(card: Card, question: str) -> _Diagnosis:
         d.likely_cause = f"Knowledge search ran ({ec.name if ec.name is not None else 'knowledge'}{query}) but returned 0 results. Either the content isn't in the knowledge source, or the search wording doesn't match how the documents are written."
         d.step("Check a document that answers this question exists in the knowledge source and has finished indexing.")
         d.step("Compare the search text with your document titles. If users word it differently, add the synonym to the terminology rules in the instructions.")
+    elif off_topic:
+        d.set_stages(OK, FAILED)
+        c, missing = off_topic
+        docs = "; ".join(c.hits[:3])
+        d.likely_cause = (
+            f"Knowledge search ran ({c.name or 'knowledge'}) and returned {c.results} result(s), but none of them mention "
+            f"{' or '.join(f'“{w}”' for w in missing)}: {docs}. The knowledge source most likely has no content on this topic, "
+            "so the agent can only answer from unrelated pages or say it couldn't find anything."
+        )
+        d.step(f"Add a document about {missing[0]} to the knowledge source ({', '.join(card.scopes[:2]) or 'the configured site'}) and wait for it to finish indexing.")
+        d.step("If the content exists elsewhere, add that site or library as a knowledge source, or check the signed-in user can open it.")
+        d.step("If the agent should not answer this topic, add a restriction rule that declines it with a clear next step instead of searching.")
     elif not any_exec:
         d.set_stages(FAILED, NOT_RUN)
         d.likely_cause = "Copilot answered without searching the agent's knowledge or calling an action, so the answer isn't grounded in your sources."
@@ -861,16 +1064,19 @@ def _entry_dict(e: ExecEntry) -> dict:
         "url": e.url,
         "method": e.method,
         "error": e.error,
+        "hits": list(e.hits),
     }
 
 
 def _card_dict(card: Card) -> dict:
     return {
         "agent_id": card.agent_id,
+        "agent_name": card.agent_name,
         "agent_version": card.agent_version,
         "conversation_id": card.conversation_id,
         "request_id": card.request_id,
         "capabilities": list(card.capabilities),
+        "scopes": list(card.scopes),
         "action_ids": list(card.action_ids),
         "matched": list(card.matched),
         "selected": list(card.selected),
