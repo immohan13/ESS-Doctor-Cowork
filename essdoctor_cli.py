@@ -390,14 +390,15 @@ def cmd_xray(a) -> str:
         for v in r["versions"]:
             md.append(f"- **{_cell(v.get('agent') or '')} {v.get('version', '')}**: {v.get('interactions')} interactions, "
                       f"{v.get('first')} → {v.get('last')}; resources: {_cell(v.get('resources'))[:300]}; plugins: {_cell(v.get('plugins'))[:200]}")
-        md += ["", "Compare when each version started with when the instructions changed, then upload a DevUI export of a "
-                   "failing question for a turn-by-turn X-ray."]
+        md += ["", "Compare when each version started with when the instructions changed, then upload a developer mode card "
+                   "of a failing question, with the question and the agent's answer, for a step-by-step X-ray."]
         return "\n".join(md)
     from ess_maker.doctor import devmode, devmode_report
 
     if not devmode.looks_like_devmode(text):
-        raise InputError("Couldn't recognise this evidence. Upload a DevUI conversation export (JSON), a Purview audit "
-                         "export (CSV with an AuditData column), or paste the developer mode (-developer on) card text.")
+        raise InputError("Couldn't recognise this evidence. Paste the developer mode (-developer on) card or its Raw info "
+                         "JSON, upload a Purview audit export (CSV with an AuditData column), or, if Microsoft support is "
+                         "helping you, a DevUI conversation export (JSON).")
     hq, hr, _ = devmode.split_header(text)
     return "```text\n" + devmode_report.build(text, question=a.question or hq, response=a.response or hr, current=current) + "\n```"
 
@@ -441,8 +442,9 @@ def cmd_sorry(a) -> str:
         else:
             skipped.append(name)
     if not sources:
-        raise InputError("No conversation evidence found. Upload DevUI conversation exports (JSON) or developer mode cards "
-                         "(text), one file per conversation or several in a .zip.")
+        raise InputError("No conversation evidence found. Upload developer mode cards (text or Raw info JSON) or, if "
+                         "Microsoft support is helping you, DevUI conversation exports; one file per conversation or "
+                         "several in a .zip.")
     instructions = load_agent(a.instructions).instruction_text if a.instructions else ""
     md = sorry.build(sorry.triage(sources, instructions))
     if skipped:

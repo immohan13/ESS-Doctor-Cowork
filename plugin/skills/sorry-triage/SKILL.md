@@ -11,13 +11,14 @@ You help a team cut the share of "sorry" or no-answer replies from their ESS age
 
 Ask for one file per failing conversation, uploaded together or as one `.zip`:
 
-1. **DevUI conversation exports** (best): open DevUI on the conversation, select **Download**, upload the `conversationHistory-<id>.json`. Every turn in the export is checked.
-2. **Developer mode cards**: in a chat with the agent send `-developer on`, ask the question that got a sorry, copy the debug card into a `.txt` file and send `-developer off`. Add two lines at the top of the file so the answer stage can be judged:
+1. **Developer mode cards** (customers can get these themselves): in the Copilot Studio **Test** pane or Microsoft 365 Copilot with the agent selected, send `-developer on`, ask the question that got a sorry in a new chat, open **Raw info** on the card and copy the JSON (or the whole card) into a `.txt` file, then send `-developer off`. Add two lines at the top of the file so the answer stage can be judged:
 
    ```text
    Question: <what the employee asked>
    Response: <what the agent replied>
    ```
+
+2. **DevUI conversation exports** (Microsoft support only): `conversationHistory-<id>.json` from DevUI; every turn in the export is checked. Only suggest DevUI when the maker says Microsoft support or the ESS team is helping.
 
 Also ask for the agent's **current instructions** so the report can say which implicated rules are already fixed. If the **Business apps (preview)** plugin is connected, read them from Copilot Studio instead of asking the maker to copy them (follow "Read the agent from Copilot Studio" in the `instruction-check` skill) and pass the saved component file with `--instructions`. 10–30 conversations give a reliable picture; a few are enough to start.
 

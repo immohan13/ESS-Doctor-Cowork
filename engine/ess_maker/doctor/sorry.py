@@ -1,7 +1,7 @@
 """Sorry triage: why an ESS agent said "sorry" (or gave no answer) across many conversations.
 
-Feeds on what makers can export themselves: Microsoft 365 Copilot DevUI conversation exports (every turn is
-classified) and developer mode (-developer on) debug cards. Each "no answer" turn gets one cause, an owner and a
+Feeds on developer mode (-developer on) debug cards, which makers can collect themselves, and Microsoft 365 Copilot
+DevUI conversation exports (Microsoft support only; every turn is classified). Each "no answer" turn gets one cause, an owner and a
 fix; causes are grouped so the team can work on the biggest one first, and the instruction lines behind the
 maker-owned causes are counted across conversations.
 """
@@ -58,7 +58,8 @@ CAUSES = {c.id: c for c in [
     Cause("throttled", "Copilot throttled the request", "Platform (no maker fix)",
           "Ask again later. If it keeps happening, report it with thumbs down.", ()),
     Cause("unknown", "Not enough evidence", "Collect more evidence",
-          "Export the same conversation from DevUI; it shows the instructions that ran, the tools and the search funnel.",
+          "Collect a developer mode card for the question (Raw info JSON) with the question, the agent's answer and the "
+          "instructions; with Microsoft support, a DevUI export also shows the instructions that ran and the search funnel.",
           ()),
 ]}
 
@@ -200,8 +201,8 @@ def build(result: dict) -> str:
     L.append(f"{result['turns']} turn(s) analyzed; {n} ended in a sorry, an error or no answer"
              + (f" ({n * 100 // max(1, result['turns'])}%)." if result["turns"] else "."))
     if not n:
-        L += ["", "No sorry answers in this evidence. Upload DevUI exports or developer mode cards of conversations "
-                  "where the agent apologized or gave no answer."]
+        L += ["", "No sorry answers in this evidence. Upload developer mode cards (or DevUI exports, with Microsoft support) "
+                  "of conversations where the agent apologized or gave no answer."]
         return "\n".join(L)
     L += ["", "### Causes, biggest first", "", "| Cause | Turns | Share | Who fixes it | Fix |", "| --- | --- | --- | --- | --- |"]
     for cid, c in counts.most_common():

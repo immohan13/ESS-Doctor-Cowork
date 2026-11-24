@@ -1018,7 +1018,7 @@ def _diagnose_card(card: Card, question: str) -> _Diagnosis:
         d.step(f"If the agent should answer questions about “{missing[0]}”, add a document on it to the knowledge source "
                f"({', '.join(card.scopes[:2]) or 'the configured site'}) and wait for it to finish indexing.")
         d.step("If it shouldn't, check the instructions: the restriction should decline before searching, with a clear next step. "
-               "Upload the instructions with the card, or export the conversation from DevUI, to see which line applies.")
+               "Upload the instructions with the card to see which line applies.")
     elif not any_exec:
         d.set_stages(FAILED, NOT_RUN)
         d.likely_cause = "Copilot answered without searching the agent's knowledge or calling an action, so the answer isn't grounded in your sources."

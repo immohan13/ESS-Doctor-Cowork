@@ -1,0 +1,75 @@
+# DevUI vs developer mode: what makers can see
+
+ESS Doctor produces the same conversation X-ray layout (question, answer, what happened, where it went wrong, planner, search, synthesis and safety, instruction lines responsible, next steps) from whatever evidence the maker has. This page compares the evidence sources, shows which X-ray sections each one fills, and lists what customers can't get today.
+
+DevUI is a Microsoft-internal tool: `/share` and the DevUI debug link need a Microsoft corporate account. Customer makers work from developer mode, their agent's instructions and, through their compliance admin, Purview audit exports.
+
+## Turn on developer mode
+
+There are no tenant or admin settings for developer mode. A maker needs:
+
+- A licensed Microsoft 365 Copilot experience, or Copilot Chat with pay-as-you-go billing for agents grounded in organizational data.
+- Access to the agent: the Copilot Studio **Test** pane for agents built in Copilot Studio, or Microsoft 365 Copilot with the agent selected.
+
+Steps:
+
+1. Open the agent in the Copilot Studio **Test** pane (or Microsoft 365 Copilot with the agent selected) and start a new chat.
+2. Send `-developer on`. Copilot replies "Successfully enabled developer mode."
+3. Ask the exact question that failed.
+4. Under the answer, open **Agent debug info** to read the card, or **Raw info** to see the full JSON. Copy the Raw info JSON into a `.txt` file; it contains the most detail, including the text of each document the search returned.
+5. Add two lines at the top of the file: `Question: <what the employee asked>` and `Response: <what the agent replied>`. The card doesn't include either.
+6. Send `-developer off` when done.
+
+Tips:
+
+- Use a new chat for each question so earlier turns don't change the result.
+- No card means Copilot answered without the agent's knowledge, capabilities or actions, or the request was throttled. "No card" is itself a finding: the question wasn't grounded.
+- Developer mode only works in the licensed Microsoft 365 Copilot experience, including the Copilot Studio Test pane.
+- Pro-code declarative agents (Agents Toolkit) also get a **Debug panel** and a downloadable diagnostic log when previewed with F5.
+- Copy the agent's instructions from Copilot Studio (**Overview > Instructions**) once, and pass them with the card so ESS Doctor can name the instruction line behind the failure.
+
+## Evidence compared
+
+The example sizes come from one ESS HR conversation ("compare my salary with amazon when my compa ratio is 1.8").
+
+| What it shows | Developer mode card (Raw info, ~25 KB) | DevUI export (~48 MB) | Purview audit export |
+| --- | --- | --- | --- |
+| Who can get it | Any maker chatting with the agent | Microsoft support and engineering only | Customer compliance admin (audit search) |
+| Question and answer | No (maker adds them) | Yes, every turn | No |
+| Agent name, version, conversation ID | Yes | Yes | Yes (name, ID, version) |
+| Instructions that ran | No (maker adds the current instructions) | Yes, as sent to the model | No |
+| Knowledge sources configured | Yes, with SharePoint scopes | Yes | No |
+| Search queries Copilot wrote | No (empty in the card) | Yes, every query | No |
+| Documents the search returned | Yes: titles, ranks and extract text | Yes, with the funnel (found → admitted → kept) | Resources accessed, per interaction |
+| Documents cited in the answer | No | Yes | No |
+| Tools offered and called, planner steps | Matched and selected functions only | Yes, every step | Plugins used |
+| Model calls (model, latency, tokens) | No | Yes | Model name only |
+| Safety classifiers | No | Yes, each classifier and whether it triggered | No |
+| Action and connector HTTP status, latency, errors | Yes | Yes | No |
+| Many conversations at once | One card per question | One export per conversation | Yes, all interactions in a time window |
+
+## How ESS Doctor fills each X-ray section
+
+| X-ray section | From developer mode + instructions | From DevUI |
+| --- | --- | --- |
+| User question, agent response | From the `Question:` and `Response:` lines | From the export |
+| What happened, where it went wrong | Yes: tool selection, action failures (401/403/404/429/5xx, timeouts), empty searches, searches returning unrelated documents, declines applied after searching | Yes, plus the exact search queries and funnel |
+| Instruction check (rule followed or not) | Yes, when the instructions and answer are provided | Yes, against the instructions that ran |
+| Planner / tool selection | Capabilities, actions, matched and selected functions | Every tool offered and called, per model call |
+| Search / tool execution | Searches with result counts and returned document titles | Queries, funnel and kept documents |
+| Synthesis and safety | Abstain check on the answer | Safety classifiers, grounding and citations |
+| Instruction lines likely responsible | Yes, with the instructions | Yes |
+| Recommended next steps | Yes | Yes |
+
+## What customers can't get today
+
+These DevUI sections have no customer-accessible source:
+
+- The search queries Copilot wrote (the card's `queryString` is empty).
+- The search funnel (how many results were found, admitted and kept) and which documents the answer cited.
+- The instructions as sent to the model for a specific turn.
+- Each model call with its latency and tokens.
+- Safety classifier results.
+- Conversation activity for agents stored in Copilot Studio's newer backend: their **Activity** tab stays empty.
+
+ESS Doctor says in each report what its evidence can't see, so makers know when to involve Microsoft support.
