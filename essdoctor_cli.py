@@ -575,15 +575,18 @@ def cmd_fix(a) -> str:
         md += [f"> ❌ **{after - DA_INSTRUCTION_LIMIT:,} characters over the limit.** Copilot Studio cuts off the end. "
                "Apply fewer fixes, or shorten the instructions first.", ""]
     if r["applied"]:
-        md += ["### Applied", ""] + [f"- **{_title(x)}**{_at(x, off)}: {_cell(x['change'])}" for x in r["applied"]] + [""]
+        md += ["### Done: already in the new instructions", "",
+               f"These {len(r['applied'])} changes are written into `{a.out}`; you don't edit them in by hand.", ""]
+        md += [f"- **{_title(x)}**{_at(x, off)}: {_cell(x['change'])}" for x in r["applied"]] + [""]
     if r["manual"]:
-        md += ["### Needs your decision", ""] + [f"- **{_title(x)}**{_at(x, off)}: {_cell(x['change'])}" for x in r["manual"]] + [""]
+        md += ["### Not done: needs your decision", ""] + [f"- **{_title(x)}**{_at(x, off)}: {_cell(x['change'])}" for x in r["manual"]] + [""]
     md += ["### What changed", "", _diff_md(r["diff"]), ""]
     remaining = left_findings + left_own
     if remaining:
         md += ["### Still open", ""] + [f"- {_SEV.get(x['severity'], '')} {_title(x)}" for x in remaining[:10]] + [""]
     if left_shared and not dropped:
-        md += [f"{len(left_shared)} optional practice(s) not added; ask ESS Doctor to \"fix all\" to include them.", ""]
+        md += [f"**Not added on purpose:** {len(left_shared)} optional practices that the ESS template doesn't include "
+               "either. They're lower priority; reply \"fix all\" if you want them too.", ""]
     if r["tests"]:
         md += ["### Re-test with", ""] + [f"- {t}" for t in r["tests"][:10]] + [""]
     tests = list(r["tests"])
