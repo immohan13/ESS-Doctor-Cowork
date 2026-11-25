@@ -267,3 +267,34 @@ def test_application_insights_spans_become_an_xray_report():
     assert "unrelated" not in json.dumps(acts)
     assert "Conversation Investigation (Copilot Studio Application Insights logs)" in report
     assert "Logged by a topic: ESS_UserContext: Country code is empty" in report
+
+
+def test_agent_level_custom_events_use_real_field_names():
+    from ess_maker.doctor import appinsights
+
+    cid = "7b9bd8c2-0000-0000-0000-000000000000"
+    rows = [
+        ("BotMessageReceived", {"conversationId": cid, "DesignMode": "True", "type": "event", "text": ""}),
+        ("TopicStart", {"conversationId": cid, "DesignMode": "True", "TopicName": "contoso.topic.ConversationStart"}),
+        ("BotMessageReceived", {"conversationId": cid, "DesignMode": "True", "type": "message", "text": "what is my leave policy"}),
+        ("TopicAction", {"conversationId": cid, "DesignMode": "True", "TopicId": "contoso.topic.System-UserContext-Validate",
+                         "TopicName": "contoso.topic.System-UserContext-Validate", "Kind": "ConditionGroup", "ActionId": "c1"}),
+        ("UserContextLog", {"conversationId": cid, "ConversationId": cid, "Message": "User context validation start"}),
+        ("BotMessageSend", {"conversationId": cid, "DesignMode": "True", "text": "Here is the leave policy."}),
+        ("BotMessageSend", {"conversationId": "someone-else", "text": "other conversation"}),
+    ]
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["timestamp [UTC]", "itemType", "name", "operation_Id", "session_Id", "customDimensions"])
+    for i, (name, cd) in enumerate(rows):
+        w.writerow([f"2026-11-25T03:40:{i:02d}Z", "customEvent", name, "op", "", json.dumps(cd)])
+
+    acts, info = appinsights.to_activities(buf.getvalue(), cid)
+    d = transcript.diagnose({"activities": acts})
+
+    assert d["question"] == "what is my leave policy"
+    assert d["response"] == "Here is the leave policy."
+    assert "System-UserContext-Validate" in d["topics"]
+    assert info["test_pane"] is True and info["steps"] == 1 and info["spans"] == 0
+    assert info["logger"] == ["UserContextLog: User context validation start"]
+    assert "other conversation" not in json.dumps(acts)

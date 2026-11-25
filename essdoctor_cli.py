@@ -401,8 +401,14 @@ def cmd_xray(a) -> str:
                              "Check the conversation ID and the lookback period, and that the agent's telemetry logs "
                              "conversation details.")
         extra = [f"Telemetry: {info['spans']} span(s) and {info['events']} event(s)"
+                 + (f", {info['steps']} topic step(s)" if info.get("steps") else "")
+                 + (" from the Copilot Studio test pane" if info.get("test_pane") else "")
                  + (f"; channel {info['channel']}" if info["channel"] else "")
                  + (f"; model {info['model']}" if info["model"] else "") + "."]
+        if not info["spans"]:
+            extra.append("Only agent-level telemetry was found: it logs messages, topics and topic steps, but not "
+                         "knowledge searches or tool calls, so the search stage can't be judged. Environment-level "
+                         "telemetry or a test pane snapshot shows them.")
         extra += [f"Logged by a topic: {m}" for m in info["logger"][:5]]
         return "```text\n" + transcript.build(json.dumps({"activities": acts}), question=a.question, response=a.response,
                                              current=current, kind="appinsights", extra_happened=extra) + "\n```"

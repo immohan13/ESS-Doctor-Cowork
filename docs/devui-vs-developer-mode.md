@@ -73,8 +73,8 @@ A custom engine agent is a Copilot Studio agent that Microsoft 365 Copilot hands
 | Instructions and topic setup (for example an empty user context topic) | No | Yes (`botContent.yml`) | No | No | No |
 | Handoff to Copilot Studio (calls, latency, status) | Yes | No | No | No | No |
 | Microsoft 365 Copilot safety classifiers | Yes | No | No | No | No |
-| Plan, topics and tools that ran | No | Yes | Yes | Tools; topics with agent-level node execution events | Last topic only |
-| Knowledge searches and results | No | Yes, with document names | Yes, when recorded | Yes, tool arguments and results | No |
+| Plan, topics and tools that ran | No | Yes | Yes | Environment-level: tools. Agent-level: topics and every topic step (Node execution events) | Last topic only |
+| Knowledge searches and results | No | Yes, with document names | Yes, when recorded | Environment-level: tool arguments and results. Agent-level: not logged | No |
 | Failed steps and errors | Handoff failures only | Yes | Yes | Yes, with error status and message | Outcome and outcome reason |
 | Connection consent prompts | No | Yes | Yes | Not documented | No |
 | When it's available | After the conversation | Immediately | About 30 minutes after the conversation goes idle | Minutes; up to 24 hours after telemetry is first set up | — |

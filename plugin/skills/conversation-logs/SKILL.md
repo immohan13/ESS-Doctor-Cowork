@@ -17,9 +17,9 @@ Ask only for what's missing, in one message:
 2. Roughly **when** the conversation happened (default: last 7 days; up to 90).
 3. Whether the agent sends telemetry to Application Insights. If the maker doesn't know, explain the two options and stop until one is set up:
    - **Environment-level telemetry (preview, recommended):** a Power Platform admin creates an export package with export type **Copilot Studio** in the Power Platform admin center. Each turn is logged as spans with the employee's question, every tool call with its arguments and result, errors and the reply. Data can take up to 24 hours to arrive the first time.
-   - **Agent-level telemetry:** in Copilot Studio, the agent's **Settings > Advanced > Application Insights**, paste the connection string and turn on **Enable logging**, **Log conversation details** and **Node execution events**. This logs messages, topics and custom events, but not tool results.
+   - **Agent-level telemetry:** in Copilot Studio, the agent's **Settings > Advanced > Application Insights**, paste the whole connection string from the Application Insights resource's Overview page (it starts with `InstrumentationKey=` and includes `IngestionEndpoint=`), turn on **Enable logging**, **Log conversation details** and **Node execution events**, and save. Data arrives within minutes. It logs messages, topics and every topic step, plus the ESS logger topics' events, but not knowledge searches or tool calls. The ESS agent is a managed solution: changing its settings adds a customization layer, so future ESS updates won't apply cleanly. Prefer environment-level telemetry for production ESS agents.
 
-   Reading the logs needs the **Reader** role (or higher) on the Application Insights resource; Bot Transcript Viewer isn't needed.
+   Reading the logs needs the **Reader** role (or higher) on the Application Insights resource; Bot Transcript Viewer isn't needed. To check data is arriving, run `customEvents | where timestamp > ago(1h) | summarize count() by name` in the resource's **Logs** (KQL mode; turn off the Agent toggle to see the query editor): `BotMessageReceived`, `TopicStart` and `TopicAction` mean agent-level telemetry works.
 
 ## Run
 

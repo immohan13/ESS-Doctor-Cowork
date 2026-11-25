@@ -6,8 +6,10 @@ Two telemetry tiers are read:
   the user prompt (``gen_ai.input.messages``), ``ExecuteTool`` each tool call with ``gen_ai.tool.call.arguments`` and
   ``gen_ai.tool.call.result``, and ``OutputMessages`` the reply (``gen_ai.output.messages``). Turns of one conversation
   share ``gen_ai.conversation.id``.
-- Agent-level telemetry: ``customEvents`` such as BotMessageReceived, BotMessageSend, TopicStart and custom events from
-  topics (the ESS System-Logger topic logs ``Message`` and ``ConversationId``).
+- Agent-level telemetry: ``customEvents`` BotMessageReceived and BotMessageSend (``text``), TopicStart and TopicAction
+  (``TopicName``/``TopicId``, and ``Kind`` and ``ActionId`` per node), and custom events from topics (the ESS logger
+  topics log ``Message``). Rows carry ``conversationId`` and ``DesignMode`` in customDimensions. Knowledge searches and
+  tool calls aren't logged at this level.
 
 The rows are turned into Copilot Studio-style activities so ``transcript.diagnose`` can explain them.
 """
@@ -27,7 +29,7 @@ union isfuzzy=true
         | where tostring(customDimensions["gen_ai.conversation.id"]) startswith conversationId),
     (customEvents
         | where timestamp > lookback
-        | where session_Id == conversationId or tostring(customDimensions) contains conversationId)
+        | where tostring(customDimensions["conversationId"]) == conversationId or session_Id == conversationId)
 | project timestamp, itemType, name, resultCode, success, operation_Id, session_Id, customDimensions
 | order by timestamp asc"""
 
@@ -79,7 +81,8 @@ def is_export(text: str) -> bool:
     head = text.lstrip("\ufeff")[:4000]
     if not re.search(r"customDimensions", head):
         return False
-    return bool(re.search(r"gen_ai\.|InvokeAgent|ExecuteTool|OutputMessages|BotMessage|TopicStart|designMode", text[:200000]))
+    return bool(re.search(r"gen_ai\.|InvokeAgent|ExecuteTool|OutputMessages|BotMessage|TopicStart|TopicAction|[Dd]esignMode",
+                          text[:200000]))
 
 
 def _json(v):
@@ -148,8 +151,8 @@ def to_activities(text: str, conversation_id: str = "") -> tuple[list[dict], dic
         cd = _cd(r)
         name = str(r.get("name") or "")
         op = str(cd.get("gen_ai.operation.name") or "").lower()
-        conv = str(cd.get("gen_ai.conversation.id") or r.get("session_Id") or cd.get("ConversationId")
-                   or cd.get("conversationId") or "")
+        conv = str(cd.get("gen_ai.conversation.id") or cd.get("conversationId") or cd.get("ConversationId")
+                   or r.get("session_Id") or "")
         if conversation_id and conv and not conv.startswith(conversation_id) and conversation_id not in json.dumps(cd):
             continue
         base = {"conversation": {"id": conv or conversation_id}, "timestamp": r.get("timestamp")}
@@ -197,15 +200,23 @@ def to_activities(text: str, conversation_id: str = "") -> tuple[list[dict], dic
                 acts.append({**base, "type": "message", "from": {"role": "bot"}, "text": reply})
         else:
             info["events"] += 1
+            info["test_pane"] = info.get("test_pane") or str(cd.get("DesignMode") or cd.get("designMode")).lower() == "true"
             text_ = str(cd.get("text") or cd.get("Text") or "")
-            if name == "BotMessageReceived" and text_:
+            kind = str(cd.get("type") or "message").lower()
+            topic = str(cd.get("TopicName") or cd.get("TopicId") or cd.get("topicName") or "")
+            if name == "BotMessageReceived" and text_ and kind == "message":
                 acts.append({**base, "type": "message", "from": {"role": "user"}, "text": text_})
             elif name == "BotMessageSend" and text_:
                 acts.append({**base, "type": "message", "from": {"role": "bot"}, "text": text_})
-            elif name in ("TopicStart", "TopicEnd") and (cd.get("TopicName") or cd.get("topicName")):
-                if name == "TopicStart":
-                    acts.append({**base, "type": "event", "valueType": "DialogTracingInfo",
-                                 "value": {"actions": [{"topicId": str(cd.get("TopicName") or cd.get("topicName"))}]}})
+            elif name == "TopicStart" and topic:
+                acts.append({**base, "type": "event", "valueType": "DialogTracingInfo",
+                             "value": {"actions": [{"topicId": topic}]}})
+            elif name == "TopicAction" and topic:
+                info["steps"] = info.get("steps", 0) + 1
+                acts.append({**base, "type": "event", "valueType": "DialogTracingInfo",
+                             "value": {"actions": [{"topicId": topic, "actionId": str(cd.get("ActionId") or ""),
+                                                    "actionType": str(cd.get("Kind") or ""),
+                                                    "exception": str(cd.get("Exception") or cd.get("exception") or "")}]}})
             elif cd.get("Message"):
                 info["logger"].append(f"{name}: {str(cd['Message'])[:200]}")
         if conv and not info["conversation"]:
