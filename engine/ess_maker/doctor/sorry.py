@@ -209,19 +209,20 @@ def _transcript_item(diag: dict, name: str) -> Item:
 
 
 def _session_item(row: dict, name: str) -> Item:
+    from ess_maker.doctor.transcript import classify_session
+
     resp = row["response"] or ""
     topic = row["topic"] or ""
-    it = Item(name, row["session"], row["question"], resp,
-              sorry=not resp or bool(SORRY.search(resp[:800])) or bool(re.search(r"fallback|on ?error", topic, re.I)))
+    v = classify_session(row)
+    it = Item(name, row["session"], row["question"], v.get("reply") or resp,
+              sorry=v["kind"] not in ("ok", "command"))
     if not it.sorry:
         return it
-    if re.search(r"on ?error", topic, re.I):
+    it.cause = {"error": "platform-error", "fallback": "no-tool-match", "generic": "context-missing"}.get(v["kind"], "cea-inside")
+    if re.search(r"on ?error", topic, re.I) and v["kind"] != "error":
         it.cause = "action-failed"
-    elif re.search(r"fallback|unknown", topic, re.I):
-        it.cause = "no-tool-match"
-    else:
-        it.cause = "cea-inside"
-    it.detail = f"Last topic: {topic or 'none'}; outcome: {row['outcome'] or '?'}{(' (' + row['reason'] + ')') if row['reason'] else ''}"
+    it.detail = (f"{v['detail']} Last topic: {topic or 'none'}; outcome: {row['outcome'] or '?'}"
+                 f"{(' (' + row['reason'] + ')') if row['reason'] else ''}")[:220]
     return it
 
 

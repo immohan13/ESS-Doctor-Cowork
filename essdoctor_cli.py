@@ -697,23 +697,117 @@ def _xray(a, ctx: dict) -> str:
         return "```text\n" + transcript.build(text, question=a.question, response=a.response, current=current) + "\n```"
     sessions = transcript.load_sessions(text)
     if sessions:
-        q = (a.question or "").lower()
-        row = next((r for r in sessions if q and q[:60] in (r["question"] or "").lower()), sessions[0])
-        return "\n".join([
-            "## Copilot Studio session (summary only)", "",
-            f"- **Question:** {row['question']}", f"- **Agent's last reply:** {row['response'][:512] or '(none)'}",
-            f"- **Last topic:** {row['topic'] or 'none'}", f"- **Outcome:** {row['outcome'] or '?'} {row['reason']}".rstrip(),
-            f"- **Session:** {row['session']} ({row['start']})", "",
-            f"This file has {len(sessions)} session(s). The sessions download only has the text of the conversation, so it "
-            "can't show the plan, knowledge searches or errors. Use `sorry-triage` on this file to rank causes across all "
-            "sessions, and read the full transcript of this conversation (Dataverse conversationtranscript, through the "
-            "Business apps connector or a Power Apps export) for a step-by-step X-ray."])
+        return _sessions_report(sessions, a.question or "")
     if not devmode.looks_like_devmode(text):
         raise InputError("Couldn't recognise this evidence. Paste the developer mode (-developer on) card or its Raw info "
                          "JSON, upload a Purview audit export (CSV with an AuditData column), or, if Microsoft support is "
                          "helping you, a DevUI conversation export (JSON).")
     hq, hr, _ = devmode.split_header(text)
     return "```text\n" + devmode_report.build(text, question=a.question or hq, response=a.response or hr, current=current) + "\n```"
+
+
+_SESSION_ICON = {"ok": "✅", "command": "ℹ️", "generic": "⚠️", "declined": "❌", "fallback": "❌", "error": "❌", "empty": "❌"}
+_SESSION_FIX = {
+    "fallback": ("Agent maker, then knowledge owner",
+                 "Check whether a knowledge source covers {subjects}. If one does, put the words employees use in its title "
+                 "and description (the name and how people write it, for example with and without symbols or "
+                 "abbreviations), or add them to the terminology rules. If none does, add the content. If the question "
+                 "asks for an action, check the description of the topic that should handle it."),
+    "generic": ("Agent maker (user context topic and instructions)",
+                "Make the user context topic fill in {missing} for every employee, from the HR system or Microsoft Entra "
+                "ID; here they were blank. Then add the instruction below so a blank value leads to a question, not a "
+                "generic answer."),
+    "declined": ("Agent maker (instructions)",
+                 "Run the sorry triage with the agent's instructions or a test pane snapshot to find the rule that declined."),
+    "error": ("Platform (Microsoft support), then maker (On Error topic)",
+              "Re-run the question; if the error repeats, open a support case with the session ID and time, and make sure "
+              "the On Error topic handles this error code."),
+    "empty": ("Agent maker", "Ask the question in the test pane and upload the snapshot to see where it stopped."),
+    "command": ("Agent maker (optional)",
+                "Employees typed {commands} as a message. If they expect it to do something, add a topic with that trigger "
+                "phrase or tell them what to use instead; otherwise ignore it."),
+}
+_CONTEXT_RULE = ("- When the answer depends on the employee's country, office, employment type, level or tenure, use the "
+                 "user context values. If one is blank, ask the employee for it in one short question, or give the base "
+                 "policy and list how it varies; don't present one country's policy as theirs.")
+
+
+def _sessions_report(sessions: list[dict], question: str = "") -> str:
+    """Monitor > Sessions download: a verdict per session from the reply text, grouped causes and fixes."""
+    from ess_maker.doctor import transcript
+
+    from datetime import datetime as _dt
+
+    def when(s: dict):
+        for fmt in ("%m/%d/%Y %I:%M:%S %p", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+            try:
+                return _dt.strptime(s["start"].strip()[:22].rstrip("Z"), fmt)
+            except ValueError:
+                pass
+        return _dt.max
+
+    sessions = sorted(sessions, key=when)
+    rows = [(s, transcript.classify_session(s)) for s in sessions]
+    n = len(rows)
+    count = {k: sum(1 for _, v in rows if v["kind"] == k) for k in _SESSION_ICON}
+    bad = n - count["ok"] - count["command"]
+    md = ["## Sessions X-ray", "",
+          f"**{n - bad} of {n}** sessions answered · ❌ {count['fallback'] + count['declined'] + count['error'] + count['empty']} "
+          f"not answered · ⚠️ {count['generic']} generic answer(s)", "",
+          "> ℹ️ **This is a Monitor > Sessions download.** It holds only the message text, with commas and line breaks "
+          "removed and replies cut at about 500 characters, so it can't show which topic ran, what knowledge search found "
+          "or which error occurred. Verdicts come from the reply wording.", "",
+          "| # | Started (UTC) | Question | Outcome | Verdict |", "| --- | --- | --- | --- | --- |"]
+    q_low = question.strip().lower()[:60]
+    for i, (s, v) in enumerate(rows, 1):
+        extra = [x for x in v["exchanges"] if x["kind"] != v["kind"] and x["kind"] != "ok"]
+        verdict = f"{_SESSION_ICON[v['kind']]} {v['label']}" + "".join(
+            f"<br>{_SESSION_ICON[x['kind']]} then: {_cell(x['question'])[:40]}: {x['label'].lower()}" for x in extra)
+        mark = " ◀" if q_low and q_low in (s["question"] or "").lower() else ""
+        md.append(f"| {i}{mark} | {_cell(s['start'])} | **{_cell(s['question'])[:120]}** | "
+                  f"{_cell(s['outcome'])}{', ' + _cell(s['turns']) + ' turns' if s.get('turns') else ''} | {verdict} |")
+
+    groups: dict[str, list[tuple[int, dict]]] = {}
+    for i, (s, v) in enumerate(rows, 1):
+        for x in v["exchanges"]:
+            if x["kind"] != "ok":
+                groups.setdefault(x["kind"], []).append((i, x))
+    if groups:
+        md += ["", "### What went wrong, biggest first", ""]
+        order = sorted(groups, key=lambda k: (k == "command", -len(groups[k]), _SESSION_ICON[k]))
+        for k_i, kind in enumerate(order, 1):
+            items = groups[kind]
+            owner, fix = _SESSION_FIX[kind]
+            subjects = ", ".join(dict.fromkeys(
+                f'"{re.sub(r"^(what|who|where)(\s+is|\s+are|[’\x27]s)\s+|^tell me about\s+", "", _cell(x["question"]), flags=re.I).rstrip("?. ")[:60]}"'
+                for _, x in items))
+            missing = next((x.get("missing") for _, x in items if x.get("missing")), "") or "country, employment type and level"
+            fix = fix.format(subjects=subjects, missing=missing, commands=subjects)
+            md += [f"{k_i}. {_SESSION_ICON[kind]} **{items[0][1]['label']}** · {len(items)} · sessions "
+                   + ", ".join(f"#{i}" for i, _ in items) + "  ",
+                   f"   - **What happened:** {_cell(items[0][1]['detail'])}"
+                   + (f" Agent said: *\"{_cell(items[0][1]['reply'])[:200]}\"*" if items[0][1]["reply"] and kind != "generic" else ""),
+                   f"   - **Who fixes it:** {owner}",
+                   f"   - **Fix:** {fix}", ""]
+            if kind == "generic":
+                md += ["   **Proposed instruction** (add under the section that handles user context):", ""]
+                md += _indent("\n".join(_diff_block(["+ " + _CONTEXT_RULE])), "   ") + [""]
+    failed_q = [f'"{_cell(x["question"])[:60]}"' for kind in ("fallback", "declined", "error", "empty", "generic")
+                for _, x in groups.get(kind, [])]
+    md += ["### Next steps", ""]
+    steps = []
+    if failed_q:
+        steps.append("For " + ", ".join(failed_q[:4]) + ": ask the same question in the Copilot Studio test pane and upload "
+                     "the snapshot (.zip), or read the transcript with `transcript-xray` by agent name. Both show the topic, "
+                     "the knowledge search and its results, so the X-ray can name the failing step.")
+    if "generic" in groups:
+        steps.append("Upload the agent's instructions (or a snapshot) and ESS Doctor drafts the blank-value rule into the "
+                     "right section as a diff, with an evaluation test set.")
+    if "fallback" in groups:
+        steps.append("Send the unmatched subjects to the knowledge owner if no source covers them.")
+    steps.append("After the fixes, download the sessions again and re-run this X-ray to compare.")
+    md += [f"{i}. {s}" for i, s in enumerate(steps, 1)]
+    return "\n".join(md)
 
 
 def _evidence_files(paths: list[str]) -> list[tuple[str, bytes]]:

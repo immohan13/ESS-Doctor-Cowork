@@ -14,7 +14,7 @@ import json
 import re
 from datetime import datetime, timezone
 
-from ess_maker.doctor.report import RULE, _HEDGE, _REFUSAL, instruction_check, synthesis_reason
+from ess_maker.doctor.report import RULE, _FALLBACK, _HEDGE, _REFUSAL, instruction_check, synthesis_reason
 from ess_maker.doctor.rules import PIPELINE_ORDER
 
 OK, FAILED, NOT_RUN, UNKNOWN = "ok", "failed", "not run", "unknown"
@@ -140,15 +140,79 @@ def load_sessions(text: str) -> list[dict]:
     rows = list(csv.DictReader(io.StringIO(t)))
     out = []
     for r in rows:
-        chat = r.get("ChatTranscript") or ""
+        r = {re.sub(r"\(.*\)$", "", (k or "").strip()).lower(): v or "" for k, v in r.items()}
+        chat = r.get("chattranscript") or ""
         parts = [p.strip() for p in re.split(r";\s*(?=(?:User|Bot|Agent) says:)", chat) if p.strip()]
-        users = [re.sub(r"^User says:\s*", "", p).rstrip(";") for p in parts if p.startswith("User says:")]
-        bots = [re.sub(r"^(Bot|Agent) says:\s*", "", p).rstrip(";") for p in parts if re.match(r"(Bot|Agent) says:", p)]
-        out.append({"session": r.get("SessionID") or r.get("SessionId") or "", "start": r.get("StartDateTime") or "",
-                    "outcome": r.get("SessionOutcome") or "", "reason": r.get("OutcomeReason") or "",
-                    "topic": r.get("TopicName") or "", "question": r.get("InitialUserMessage") or (users[0] if users else ""),
-                    "response": bots[-1] if bots else "", "turns": r.get("Turns") or ""})
+        pairs: list[list[str]] = []
+        for p in parts:
+            if p.startswith("User says:"):
+                pairs.append([re.sub(r"^User says:\s*", "", p).rstrip(";").strip(), ""])
+            elif re.match(r"(Bot|Agent) says:", p):
+                text = _clean_reply(re.sub(r"^(Bot|Agent) says:\s*", "", p).rstrip(";"))
+                if pairs and not pairs[-1][1]:
+                    pairs[-1][1] = text
+                else:
+                    pairs.append(["", text])
+        users = [u for u, _ in pairs if u]
+        bots = [b for _, b in pairs if b]
+        out.append({"session": r.get("sessionid") or "", "start": r.get("startdatetime") or "",
+                    "outcome": r.get("sessionoutcome") or "", "reason": r.get("outcomereason") or "",
+                    "topic": r.get("topicname") or "", "channel": r.get("channel") or "",
+                    "question": r.get("initialusermessage") or (users[0] if users else ""),
+                    "response": bots[-1] if bots else "", "first_response": bots[0] if bots else "",
+                    "turns": r.get("turns") or "", "pairs": [tuple(p) for p in pairs]})
     return out
+
+
+def _clean_reply(text: str) -> str:
+    """Agent text from a sessions download without its HTML wrapper."""
+    t = re.sub(r"</?(div|m-official|p|span|br)[^>]*>", " ", text or "", flags=re.I)
+    return re.sub(r"\s{2,}", " ", t).strip()
+
+
+_MISSING = re.compile(r"(?:does not|doesn['’]t) (?:provide|include|have|show|list) (?:your |the )?(.{3,160}?)(?:\.|$)", re.I)
+
+
+def classify_exchange(question: str, reply: str, topic: str = "") -> dict:
+    """What a single question and reply in a sessions download show. The download holds only text, so the verdict
+    comes from the reply wording: kind is ok, command, fallback, generic, declined, error or empty."""
+    from ess_maker.doctor.report import _ABSTAIN_TEXT, _FALLBACK
+
+    q, r = (question or "").strip(), (reply or "").strip()
+    if q.startswith("/"):
+        return {"kind": "command", "label": "Command typed in the chat",
+                "detail": f'"{q}" isn\'t a question; the agent sent it to Fallback.' if _FALLBACK.search(r) else
+                f'"{q}" isn\'t a question.'}
+    if not r:
+        return {"kind": "empty", "label": "No reply", "detail": "The agent didn't reply."}
+    m = re.search(r"\bError code:\s*(\w+)", r)
+    if m or re.search(r"on ?error", topic, re.I):
+        return {"kind": "error", "label": "System error", "detail": f"Error {m.group(1) if m else 'in the On Error topic'}."}
+    if _FALLBACK.search(r[:400]) or re.search(r"fallback|unknown intent", topic, re.I):
+        return {"kind": "fallback", "label": "No topic or knowledge matched",
+                "detail": "The agent gave its Fallback reply: no topic matched and nothing usable came back from knowledge."}
+    if _HEDGE.search(r[:1500]):
+        mm = _MISSING.search(r[:1500])
+        missing = re.sub(r"\s+", " ", mm.group(1)).strip(" *") if mm else ""
+        return {"kind": "generic", "label": "Generic answer: employee details missing",
+                "detail": ("The agent found content but couldn't tell which part applies"
+                           + (f" because the profile doesn't provide {missing}." if missing else "; it said it couldn't verify a detail.")),
+                "missing": missing}
+    if _REFUSAL.search(r[:600]) or _ABSTAIN_TEXT.search(r[:600]):
+        return {"kind": "declined", "label": "Declined or found nothing", "detail": _head(r, 160)}
+    return {"kind": "ok", "label": "Answered", "detail": ""}
+
+
+_SEVERITY = ["fallback", "error", "empty", "generic", "declined", "command", "ok"]
+
+
+def classify_session(row: dict) -> dict:
+    """The worst exchange in a session decides its verdict; typed commands only count when nothing else went wrong."""
+    pairs = row.get("pairs") or [(row.get("question", ""), row.get("response", ""))]
+    found = [dict(classify_exchange(q, r, row.get("topic", "")), question=q, reply=r) for q, r in pairs if q or r]
+    found = found or [dict(classify_exchange(row.get("question", ""), ""), question=row.get("question", ""), reply="")]
+    worst = min(found, key=lambda x: _SEVERITY.index(x["kind"]))
+    return {**worst, "exchanges": found}
 
 
 def _messages(doc: dict) -> tuple[list[str], list[str]]:
@@ -366,13 +430,14 @@ def diagnose(doc: dict, question: str = "") -> dict:
     asked = seq[qi][1] if qi is not None else ""
     reply = next((t for r, t in seq[qi + 1:] if r == "bot"), "") if qi is not None else (bots[-1] if bots else "")
     hedged = bool(reply and _HEDGE.search(reply[:1500]))
+    fallback = bool(reply and _FALLBACK.search(reply[:400]))
     if pii_queries:
         happened.append("The search query included the employee's name or email address.")
     if profile_searches:
         happened.append("The agent searched the knowledge sources for the employee's own profile (country, employment type, job level).")
 
     any_step = bool(planned or ran or failed or topics or searches)
-    stages = {"planner": FAILED if unknown_intent and not any_step else OK if any_step else UNKNOWN}
+    stages = {"planner": FAILED if (unknown_intent or fallback) and not any_step else OK if any_step else UNKNOWN}
     stages["search"] = (FAILED if failed or consent or (searches and empty == len(searches))
                         else OK if ran or searches else NOT_RUN if stages["planner"] == FAILED else UNKNOWN)
     stages["synthesis"] = (FAILED if any(_NO_ANSWER.search(s) for s in answer_states)
@@ -415,8 +480,8 @@ def diagnose(doc: dict, question: str = "") -> dict:
                      "searching documents for them.")
     elif hedged:
         stages["synthesis"] = FAILED
-        cause = ("The searches worked, but the agent answered generically because it couldn't verify details it needed "
-                 "(see its reply).")
+        cause = (("The searches worked, but the agent" if searches else "The agent")
+                 + " answered generically because it couldn't verify details it needed (see its reply).")
         steps.append("Check which detail the agent said it couldn't verify, and make sure a topic or variable provides it.")
     elif not acts:
         cause = "The transcript has no activities."

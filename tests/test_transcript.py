@@ -577,3 +577,41 @@ def test_what_changed_uses_colored_diff_blocks():
     assert "```diff\n- " in changed and "\n+ " in changed
     assert "**✏️ Changed: Routing decision tree**" in changed
     assert "\u00e2\u2020\u2019" not in out.getvalue() and "\u00e2\u20ac\u00a6" not in out.getvalue()
+
+
+_SESSIONS_CSV = (
+    "SessionId,StartDateTime(UTC),SessionOutcome,OutcomeReason,IsResolvedImplied,Turns,ChatTranscript,InitialUserMessage,TopicName,TopicId,Channel,CSAT,Comments\n"
+    "s1,11/25/2026 5:17:33 PM,Abandoned,UserExit,,2,User says: what is perks+;Agent says: Sorry I am not able to find a related topic. Can you rephrase and try again?;,what is perks+,,,m365copilot,,\n"
+    "s2,11/25/2026 7:44:38 AM,Resolved,Resolved,true,4,User says: what is my leave policy;Agent says: <div><m-official> **Your leave policy**I found leave policies but I can’t reliably determine which one applies because your profile does not provide your country/office or tenure.For example...;User says: /share;Agent says: Sorry I am not able to find a related topic. Can you rephrase and try again?;,what is my leave policy,[System] - Response Preparation,x,m365copilot,,\n"
+    "s3,11/25/2026 5:23:53 PM,Resolved,Resolved,true,2,User says: how to replace my laptop;Agent says: <div> Open a ticket in the Support Portal. [1];,how to replace my laptop,,,m365copilot,,\n")
+
+
+def test_sessions_download_gets_a_verdict_per_session():
+    from ess_maker.doctor import sorry, transcript
+
+    rows = transcript.load_sessions(_SESSIONS_CSV)
+    kinds = {r["session"]: transcript.classify_session(r)["kind"] for r in rows}
+    assert kinds == {"s1": "fallback", "s2": "generic", "s3": "ok"}
+    s2 = next(r for r in rows if r["session"] == "s2")
+    assert s2["start"].startswith("11/25/2026") and "<div>" not in s2["first_response"]
+    assert "country/office or tenure" in transcript.classify_session(s2)["missing"]
+    r = sorry.triage([("session", row["session"], row) for row in rows])
+    assert {i.conversation: i.cause for i in r["items"] if i.sorry} == {"s1": "no-tool-match", "s2": "context-missing"}
+
+
+def test_sessions_xray_report_orders_by_time_and_proposes_a_diff():
+    import contextlib
+    import tempfile
+    from pathlib import Path
+    import essdoctor_cli
+
+    with tempfile.TemporaryDirectory() as d:
+        p = Path(d) / "Sessions.csv"
+        p.write_text(_SESSIONS_CSV, encoding="utf-8")
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            assert essdoctor_cli.main(["xray", str(p)]) == 0
+    md = out.getvalue()
+    assert md.startswith("## Sessions X-ray")
+    assert md.index("what is my leave policy") < md.index("what is perks+")
+    assert '"perks+"' in md and "```diff\n" in md and "Command typed in the chat" in md

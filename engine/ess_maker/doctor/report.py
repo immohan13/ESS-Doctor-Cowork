@@ -50,6 +50,9 @@ _REFUSAL = re.compile(r"unable to (assist|help|compare|provide|share|discuss|ans
                       r"couldn['’]t find|please contact the people team", re.I)
 _HEDGE = re.compile(r"couldn['’]t (verify|confirm|determine)|can['’]t (reliably|determine|confirm|verify)|"
                     r"unable to (verify|confirm|determine)|without verified", re.I)
+# Copilot Studio's Fallback (unknown intent) replies, including the ESS template's wording.
+_FALLBACK = re.compile(r"not able to find a related topic|can you rephrase|try rephrasing|i['’]?m not sure how to help|"
+                       r"i didn['’]?t (quite )?(understand|get that)|i don['’]?t understand", re.I)
 _ABSTAIN_TEXT = re.compile(r"couldn['’]?t find|could not find|i (don['’]?t|do not) have (that|this|any) information|"
                            r"unable to (find|provide)|no (relevant )?information (was )?found", re.I)
 

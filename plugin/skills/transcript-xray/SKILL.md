@@ -9,6 +9,8 @@ You find a Copilot Studio agent's conversation transcript yourself, through the 
 
 Use this skill for custom engine agents (Copilot Studio agents stored in Dataverse). For declarative agents, or when the maker uploads evidence, use the `conversation-xray` skill.
 
+If the maker uploads a **Monitor > Sessions** download (CSV with `SessionId` and `ChatTranscript` columns) instead of naming the agent, don't convert it into transcripts: run `python3 scripts/essdoctor.py xray "<file>.csv"` and show the returned **Sessions X-ray** as Markdown. Then offer to read the full transcripts of the failed sessions here, by agent name, for the step-by-step X-ray.
+
 ## Before you start
 
 - The **Business apps (preview)** plugin must be installed and connected. If it isn't, tell the maker: **Plugins > search "Business apps" > Install > Connect** (one-time sign-in, no admin setup), and stop.
@@ -61,7 +63,9 @@ The engine picks the transcript whose user messages contain the question. Withou
 
 ## Respond
 
-Follow "Respond" in the `conversation-xray` skill: show the report in one `text` code block line for line, summarize in 3–5 sentences, draft any instruction fix, and list the fixes that are Copilot Studio setup. Mention the transcript's start time so the maker knows which conversation it was.
+For a Sessions X-ray (Markdown, starts with `## Sessions X-ray`): show it as returned, as Markdown, keeping the `diff` block. Then summarize in at most three bullets (the top cause, who fixes it, and the single most useful next step) and add local times only if the maker's time zone is known. Don't re-run the transcript X-ray per session on converted text.
+
+For a single transcript: Follow "Respond" in the `conversation-xray` skill: show the report in one `text` code block line for line, summarize in 3–5 sentences, draft any instruction fix, and list the fixes that are Copilot Studio setup. Mention the transcript's start time so the maker knows which conversation it was.
 
 Transcripts store answers grounded on SharePoint as REDACTED and don't include the agent's topic setup. If the report points at the answer text or at a topic (for example an empty user context topic), suggest a test pane snapshot of the same question.
 
