@@ -22,8 +22,9 @@ DIST = HERE / "dist"
 PLUGIN_SRC = HERE / "plugin"
 
 # Engine modules (standard library only); the plugin works on files the maker uploads.
-ENGINE = ["agent_file", "appinsights", "blocks", "condense", "devmode", "devmode_report", "devui", "drafter", "evaltriage",
-          "evidence", "fixes", "known_issues", "practices", "report", "rules", "setup_servicenow", "sorry", "transcript"]
+ENGINE = ["agent_file", "appinsights", "blocks", "condense", "devmode", "devmode_report", "devui", "drafter", "evalset",
+          "evaltriage", "evidence", "fixes", "known_issues", "practices", "report", "rules", "setup_servicenow", "sorry",
+          "transcript"]
 
 SETTINGS_STUB = '''"""Settings stub for the Cowork plugin: no Azure OpenAI, so the drafter uses its deterministic wording."""
 

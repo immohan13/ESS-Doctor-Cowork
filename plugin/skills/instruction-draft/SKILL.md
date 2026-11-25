@@ -41,8 +41,10 @@ Save the instructions to `inputs/current.txt` (or use the uploaded agent file), 
 
 ```bash
 python3 scripts/essdoctor.py draft inputs/current.txt --intake inputs/intake.json --out outputs/drafted_instructions.txt
-python3 scripts/essdoctor.py check outputs/drafted_instructions.txt --previous inputs/current.txt
+python3 scripts/essdoctor.py check outputs/drafted_instructions.txt --previous inputs/current.txt --no-evalset
 ```
+
+`draft` also writes `outputs/evalset.csv`: a Copilot Studio evaluation test set with the questions this change should and must not affect, plus ESS regression questions, each with its expected response. The follow-up `check` uses `--no-evalset` so it doesn't overwrite it.
 
 If the draft report says more detail is needed, ask the maker those questions and run it again.
 
@@ -52,6 +54,7 @@ If the draft report says more detail is needed, ask the maker those questions an
 2. Show the `check` report for the new version, highlighting "Findings introduced by this change". If the change introduced a high finding, say so plainly and propose a narrower wording, then re-run.
 3. You may suggest clearer wording for the added clause, but keep it in the same section, and re-run `check` on any edited version before offering it.
 4. Hand over `outputs/drafted_instructions.txt`: print it (`cat outputs/drafted_instructions.txt`) and show its full content, unchanged, inside one fenced code block marked `text`, then list the example questions to test after publishing.
+5. Always share `outputs/evalset.csv` as a downloadable file, and tell the maker how to use it: in Copilot Studio open the agent > **Evaluation** > **Create a test set** > upload the CSV, run it on the current version, publish the change, run it again, then upload both results files here to compare them with `eval-compare`.
 
 ## Applying
 

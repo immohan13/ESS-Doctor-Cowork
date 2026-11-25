@@ -41,6 +41,7 @@ python3 scripts/essdoctor.py practices
 
 - Omit `--previous` when there is no previous version.
 - A line starting with `ERROR:` on stderr means the input can't be used; tell the maker what the message asks for.
+- `check` (when it has questions to test), `fix` and `condense` also write `outputs/evalset.csv`: a Copilot Studio evaluation test set for the change, with ESS regression questions and an expected response for each. When you re-run `check` on a fixed or shortened file, add `--no-evalset` so it keeps the set the fix wrote.
 
 ## Respond
 
@@ -50,7 +51,8 @@ python3 scripts/essdoctor.py practices
    - **Fix**: run `fix` (all, or only the rule IDs the maker picks), show the report, and hand over `outputs/fixed_instructions.txt` as described in "Applying a fix".
    - **Shorten**: when the length is over 8,000 characters as Copilot Studio counts them, run `condense`.
    - **Re-test**: list the "Questions to test" from the report.
-4. After a fix, run `check` again on the fixed file and confirm the high findings are gone.
+4. After a fix, run `check --no-evalset` again on the fixed file and confirm the high findings are gone.
+5. Whenever `outputs/evalset.csv` was written, share it as a downloadable file and tell the maker how to use it: in Copilot Studio open the agent > **Evaluation** > **Create a test set** > upload the CSV, run it on the current version, publish the change, run it again, then upload both results files here to compare them with `eval-compare`.
 
 ## Applying a fix
 

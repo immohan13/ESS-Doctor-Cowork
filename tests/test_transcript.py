@@ -343,3 +343,30 @@ def test_eval_triage_report_flags_required_line_missing_from_passing_answers():
     assert "A required line is missing from 2 of 2 responses, including 1 that passed" in report
     assert "### At a glance" in report and "| Scenario doesn't exist | 1 | #1 |" in report
     assert "### Who fixes what" in report
+
+
+def test_draft_writes_importable_evalset_with_specific_expectations():
+    import contextlib
+    import tempfile
+    from pathlib import Path
+    import essdoctor_cli
+
+    instructions = "#Core identity\nYou are an HR agent.\n\n#Formatting rules\n- Use short paragraphs.\n"
+    intake = {"change_type": "disclaimer", "intent": "Add a preview disclaimer",
+              "disclaimer_text": "This agent is in preview; verify the results.",
+              "should_affect": ["What is the parental leave policy?"], "must_not_affect": ["Reset my password"]}
+    with tempfile.TemporaryDirectory() as d:
+        src, req, out = Path(d) / "current.txt", Path(d) / "intake.json", Path(d) / "outputs" / "draft.txt"
+        src.write_text(instructions, encoding="utf-8")
+        req.write_text(json.dumps(intake), encoding="utf-8")
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            assert essdoctor_cli.main(["draft", str(src), "--intake", str(req), "--out", str(out)]) == 0
+        rows = list(csv.reader(io.StringIO((out.parent / "evalset.csv").read_text(encoding="utf-8"))))
+
+    assert rows[0] == ["Question", "Expected response"]
+    by_q = dict(rows[1:])
+    assert "This agent is in preview; verify the results." in by_q["What is the parental leave policy?"]
+    assert "Who is my manager?" in by_q
+    assert len(rows) - 1 <= 100 and all(len(q) <= 1000 and len(e) <= 1000 for q, e in rows[1:])
+    assert "### Evaluation test set" in buf.getvalue()

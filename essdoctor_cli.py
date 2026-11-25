@@ -182,6 +182,21 @@ def _write(path: str, text: str) -> None:
     out.write_text(text.rstrip("\n") + "\n", encoding="utf-8")
 
 
+def _evalset(a, tests: list, beside: str = "") -> list[str]:
+    """Write the Copilot Studio test set for this change and return the report lines that point to it."""
+    from ess_maker.doctor import evalset
+
+    if getattr(a, "no_evalset", False):
+        return []
+    path = getattr(a, "evalset", None) or str(Path(beside).parent / "evalset.csv" if beside else Path("outputs/evalset.csv"))
+    rows = evalset.rows_for(tests)
+    _write(path, evalset.to_csv(rows))
+    own = min(len(rows), len(evalset.rows_for(tests, include_golden=False)))
+    return ["### Evaluation test set", "",
+            f"`{path}` has {len(rows)} questions: {own} for this change and {len(rows) - own} ESS regression questions, "
+            "each with the expected response. " + evalset.IMPORT_STEPS, ""]
+
+
 def _diff_md(diff: dict, limit: int = 60, per_block: int = 5) -> str:
     out, n = [], 0
     for r in diff.get("blocks") or []:
@@ -195,9 +210,9 @@ def _diff_md(diff: dict, limit: int = 60, per_block: int = 5) -> str:
             out.append(f"  - `{h['op']}` line {h.get('line', '?')}: {_cell(h['text'])[:220]}")
             n += 1
         if len(hunks) > per_block:
-            out.append(f"  - … {len(hunks) - per_block} more line(s)")
+            out.append(f"  - â€¦ {len(hunks) - per_block} more line(s)")
     if diff.get("moderation_changed"):
-        out.append(f"- **content moderation**: {diff['old'].get('content_moderation') or 'not set'} → "
+        out.append(f"- **content moderation**: {diff['old'].get('content_moderation') or 'not set'} â†’ "
                    f"{diff['new'].get('content_moderation') or 'not set'}")
     if diff.get("char_delta"):
         out.append(f"- Length changed by {diff['char_delta']:+,} characters.")
@@ -244,6 +259,7 @@ def cmd_check(a) -> str:
         tests = sorted({p for f in findings if f["origin"] != "template" for p in f.get("test_prompts") or []})
         if tests:
             md += ["### Questions to test after fixing", ""] + [f"- {t}" for t in tests[:12]] + [""]
+            md += _evalset(a, tests)
     else:
         md += ["No rule findings.", ""]
     md += ["### ESS core blocks", ""]
@@ -271,7 +287,7 @@ def cmd_fix(a) -> str:
     c = r["chars"]
     md = ["## ESS Doctor fix", "",
           f"Applied {len(r['applied'])} fix(es); {len(r['manual'])} need a manual change. Maker findings: "
-          f"{r['counts']['before']} → {r['counts']['after']}. Length {c['before']:,} → {c['after']:,} of {c['limit']:,}.",
+          f"{r['counts']['before']} â†’ {r['counts']['after']}. Length {c['before']:,} â†’ {c['after']:,} of {c['limit']:,}.",
           f"The fixed instructions are in `{a.out}`.", ""]
     if r["applied"]:
         md += ["### Applied", ""] + [f"- {x['rule_id']} (line {_lines(x)}): {_cell(x['change'])}" for x in r["applied"]] + [""]
@@ -281,7 +297,8 @@ def cmd_fix(a) -> str:
     if r["remaining"]:
         md += ["### Still open", ""] + [f"- **{x['severity']}** {x['rule_id']}: {_cell(x['title'])}" for x in r["remaining"][:10]] + [""]
     if r["tests"]:
-        md += ["### Re-test with", ""] + [f"- {t}" for t in r["tests"][:10]]
+        md += ["### Re-test with", ""] + [f"- {t}" for t in r["tests"][:10]] + [""]
+    md += _evalset(a, r["tests"], a.out)
     return "\n".join(md)
 
 
@@ -291,7 +308,7 @@ def cmd_condense(a) -> str:
     _write(a.out, r["new_text"])
     c = r["chars"]
     md = ["## ESS Doctor shorten", "",
-          f"Length as Copilot Studio counts it: {c['before']:,} → {c['after']:,} (target {r['target']:,}). "
+          f"Length as Copilot Studio counts it: {c['before']:,} â†’ {c['after']:,} (target {r['target']:,}). "
           + ("Target reached." if r["reached"] else f"Still {r['still_needed']:,} characters over; see the candidates below."),
           f"The shortened instructions are in `{a.out}`.", ""]
     if r["steps"]:
@@ -299,7 +316,8 @@ def cmd_condense(a) -> str:
     if r["abilities_kept"]:
         md += ["### Abilities kept", "", ", ".join(f"{k}: {v}" for k, v in r["abilities_kept"].items()), ""]
     if not r["reached"] and r["candidates"]:
-        md += ["### Candidates to cut or move into topics or knowledge", ""] + [f"- {_cell(x if isinstance(x, str) else json.dumps(x))[:300]}" for x in r["candidates"]]
+        md += ["### Candidates to cut or move into topics or knowledge", ""] + [f"- {_cell(x if isinstance(x, str) else json.dumps(x))[:300]}" for x in r["candidates"]] + [""]
+    md += _evalset(a, [], a.out)
     return "\n".join(md)
 
 
@@ -348,7 +366,8 @@ def cmd_draft(a) -> str:
             md += [f"### {title}", ""] + [f"- {_cell(x if isinstance(x, str) else x.get('title') or x.get('message') or json.dumps(x))}" for x in items] + [""]
     tests = r.get("tests") or r.get("test_prompts") or []
     if tests:
-        md += ["### Test with", ""] + [f"- {_cell(t if isinstance(t, str) else t.get('prompt') or t)}" for t in tests[:12]]
+        md += ["### Test with", ""] + [f"- {_cell(t if isinstance(t, str) else t.get('prompt') or t)}" for t in tests[:12]] + [""]
+    md += _evalset(a, tests, a.out)
     return "\n".join(md)
 
 
@@ -448,7 +467,7 @@ def cmd_xray(a) -> str:
               "### Agents", ""] + [f"- {n}: {c} interactions" for n, c in r["agents"]] + ["", "### By agent version", ""]
         for v in r["versions"]:
             md.append(f"- **{_cell(v.get('agent') or '')} {v.get('version', '')}**: {v.get('interactions')} interactions, "
-                      f"{v.get('first')} → {v.get('last')}; resources: {_cell(v.get('resources'))[:300]}; plugins: {_cell(v.get('plugins'))[:200]}")
+                      f"{v.get('first')} â†’ {v.get('last')}; resources: {_cell(v.get('resources'))[:300]}; plugins: {_cell(v.get('plugins'))[:200]}")
         md += ["", "Compare when each version started with when the instructions changed, then upload a developer mode card "
                    "of a failing question, with the question and the agent's answer, for a step-by-step X-ray."]
         return "\n".join(md)
@@ -552,17 +571,17 @@ def _clip(s: str, n: int) -> str:
     if len(s) <= n:
         return s
     cut = max(s.rfind(". ", 0, n), s.rfind("; ", 0, n))
-    return s[:cut + 1] if cut > n // 2 else s[:s.rfind(" ", 0, n)] + "…"
+    return s[:cut + 1] if cut > n // 2 else s[:s.rfind(" ", 0, n)] + "â€¦"
 
 
 def _triage_report(r: dict) -> str:
     items, req = r.get("items") or [], r.get("required") or []
     total, passed, failed = r["total"], r["passed"], r["failed"]
-    md = ["## Evaluation triage", "", f"**{passed} of {total} passed** · ✅ {passed} passed · ❌ {failed} failed", ""]
+    md = ["## Evaluation triage", "", f"**{passed} of {total} passed** Â· âœ… {passed} passed Â· âŒ {failed} failed", ""]
 
     for q in req:
         if q["missing"]:
-            md += [f"> ⚠️ **A required line is missing from {q['missing']} of {q['of']} responses"
+            md += [f"> âš ï¸ **A required line is missing from {q['missing']} of {q['of']} responses"
                    + (f", including {q['missing_in_passes']} that passed" if q["missing_in_passes"] else "") + ".**",
                    f"> Instruction line {q['line']} asks every response to include: *\"{_cell(q['text'])}\"*",
                    "> The grader only judged answer quality, so passing questions don't show this. "
@@ -584,7 +603,7 @@ def _triage_report(r: dict) -> str:
     for i, x in enumerate(items, 1):
         what = _clip(x.get("headline"), 240)
         if x.get("secondary"):
-            what += "<br>⚠️ " + _clip(x["secondary"], 240)
+            what += "<br>âš ï¸ " + _clip(x["secondary"], 240)
         md.append(f"| {i} | **{_clip(x.get('question'), 160)}** | {what} | {_clip(x.get('fix'), 320)} |")
 
     flagged = [x for x in items if x.get("secondary") and x.get("lines")]
@@ -681,6 +700,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--previous", help="Previous version, to show what the change introduced")
     p.add_argument("--persona", **persona)
     p.add_argument("--json", help="Also write the full result as JSON to this path")
+    p.add_argument("--evalset", help="Where to write the Copilot Studio evaluation test set CSV")
+    p.add_argument("--no-evalset", action="store_true", help="Don't write the evaluation test set")
     p.set_defaults(fn=cmd_check)
 
     p = sub.add_parser("fix", help="Apply the safe fixes and write the fixed instructions")
@@ -688,6 +709,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--rules", help="Comma-separated rule IDs to fix (default: all auto-fixable)")
     p.add_argument("--persona", **persona)
     p.add_argument("--out", default="outputs/fixed_instructions.txt")
+    p.add_argument("--evalset", help="Where to write the Copilot Studio evaluation test set CSV")
+    p.add_argument("--no-evalset", action="store_true", help="Don't write the evaluation test set")
     p.set_defaults(fn=cmd_fix)
 
     p = sub.add_parser("condense", help="Shorten instructions to a character target without losing abilities")
@@ -695,6 +718,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--target", type=int, default=DA_INSTRUCTION_LIMIT)
     p.add_argument("--persona", **persona)
     p.add_argument("--out", default="outputs/shortened_instructions.txt")
+    p.add_argument("--evalset", help="Where to write the Copilot Studio evaluation test set CSV")
+    p.add_argument("--no-evalset", action="store_true", help="Don't write the evaluation test set")
     p.set_defaults(fn=cmd_condense)
 
     p = sub.add_parser("draft", help="Draft an instruction change from the maker's intent")
@@ -704,6 +729,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--intake", help="JSON file with the change details (subject, allowed, terms, format_spec, ...)")
     p.add_argument("--persona", **persona)
     p.add_argument("--out", default="outputs/drafted_instructions.txt")
+    p.add_argument("--evalset", help="Where to write the Copilot Studio evaluation test set CSV")
+    p.add_argument("--no-evalset", action="store_true", help="Don't write the evaluation test set")
     p.set_defaults(fn=cmd_draft)
 
     p = sub.add_parser("xray", help="Explain one conversation from a DevUI export, Purview export or developer mode card")
