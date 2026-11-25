@@ -7,6 +7,8 @@ description: Find why an ESS agent says sorry or gives no answer across many con
 
 You help a team cut the share of "sorry" or no-answer replies from their ESS agent by finding which causes are behind most of them and who can fix each.
 
+The `conversation-xray` and `transcript-xray` skills also run this triage on their own when an X-ray finds sorry answers. When the maker asks directly, start here.
+
 ## Collect evidence
 
 Upload the files together or as one `.zip` (zips of zips are fine). First find out which kind of ESS agent it is; what to collect depends on it.

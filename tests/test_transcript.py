@@ -615,3 +615,22 @@ def test_sessions_xray_report_orders_by_time_and_proposes_a_diff():
     assert md.startswith("## Sessions X-ray")
     assert md.index("what is my leave policy") < md.index("what is perks+")
     assert '"perks+"' in md and "```diff\n" in md and "Command typed in the chat" in md
+
+
+def test_sorry_triage_counts_a_session_once_when_its_transcript_is_uploaded():
+    import contextlib
+    import json as _json
+    import tempfile
+    from pathlib import Path
+    import essdoctor_cli
+
+    doc = {"activities": [
+        {"type": "message", "from": {"role": 1}, "text": "what is perks+"},
+        {"type": "message", "from": {"role": 0}, "text": "Sorry I am not able to find a related topic. Can you rephrase and try again?"}]}
+    with tempfile.TemporaryDirectory() as d:
+        (Path(d) / "Sessions.csv").write_text(_SESSIONS_CSV, encoding="utf-8")
+        (Path(d) / "t.json").write_text(_json.dumps([{"content": _json.dumps(doc)}]), encoding="utf-8")
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            assert essdoctor_cli.main(["sorry-triage", str(Path(d) / "Sessions.csv"), str(Path(d) / "t.json")]) == 0
+    assert "3 turn(s) analyzed; 2 ended" in out.getvalue()

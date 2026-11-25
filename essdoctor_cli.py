@@ -890,6 +890,10 @@ def cmd_sorry(a) -> str:
                          "download, transcripts, test pane snapshots (.zip) or an Application Insights export. Declarative "
                          "agent: developer mode cards (text or Raw info JSON) or, with Microsoft support, DevUI exports. "
                          "One file per conversation or several in a .zip.")
+    # A session row and the transcript of the same conversation are one conversation: keep the transcript, which has the cause.
+    asked = {re.sub(r"\s+", " ", (p.get("question") or "")).strip().lower() for k, _, p in sources if k == "transcript"}
+    sources = [s for s in sources if not (s[0] == "session" and
+                                          re.sub(r"\s+", " ", s[2].get("question") or "").strip().lower() in asked - {""})]
     instructions = (load_agent(a.instructions).instruction_text if a.instructions else
                     _from_text(snapshot_instructions, "Instructions in the snapshot", "snapshot").instruction_text
                     if snapshot_instructions else "")

@@ -61,6 +61,18 @@ python3 scripts/essdoctor.py xray inputs/transcripts.json --question "<words fro
 
 The engine picks the transcript whose user messages contain the question. Without `--question` it uses the one with the most activity, so save only the newest row in that case.
 
+## When the answer was a sorry: run the sorry triage too
+
+Don't wait to be asked. One sorry can be a one-off or a pattern, and the sorry triage tells them apart across conversations and links the causes to instruction lines.
+
+- **After a single-transcript X-ray** whose agent response declines, says it found nothing, gives the Fallback reply ("not able to find a related topic") or answers generically: save all the rows you already read in step 2 (up to `TOP 20`, not only the matching one) to `inputs/recent.json` and run `python3 scripts/essdoctor.py sorry-triage inputs/recent.json [--instructions inputs/current.yml]`. Skip it if you read only one transcript.
+- **After a Sessions X-ray** with any ❌ or ⚠️ session:
+  1. If the Business apps connector is connected and you know the agent, read the transcripts of those sessions only (step 2, keeping the rows whose `content` contains each failed question and whose start time is within a few minutes of the session's start), and save them to `inputs/sorry_transcripts.json`. Also read the instructions (step 4).
+  2. Run `python3 scripts/essdoctor.py sorry-triage "<Sessions>.csv" [inputs/sorry_transcripts.json] [--instructions inputs/current.yml]`. A session that also has its transcript is counted once, from the transcript.
+  3. Without transcripts or instructions the triage would only repeat the Sessions X-ray: skip it and offer the transcript read instead.
+
+Show the sorry triage after the X-ray under the heading **Across these conversations**, keeping its tables and `diff` blocks. Don't repeat sessions or turns the X-ray already showed; say only what the triage adds (the real cause from a transcript, the instruction rules behind the declines, the proposed changes, and how many conversations share the cause).
+
 ## Respond
 
 For a Sessions X-ray (Markdown, starts with `## Sessions X-ray`): show it as returned, as Markdown, keeping the `diff` block. Then summarize in at most three bullets (the top cause, who fixes it, and the single most useful next step) and add local times only if the maker's time zone is known. Don't re-run the transcript X-ray per session on converted text.
