@@ -56,6 +56,7 @@ USER_SEES = {
     "L5-SINGLE-SOURCE": "Incomplete answer", "L5-WEB-SEARCH-ON": "Ungrounded / poor answer",
     "L5-BROAD-KNOWLEDGE": "Ungrounded / poor answer",
     "L6-HARD-ROUTE-EXCLUDES-TOOLS": "Incomplete answer", "L6-MANDATED-TOOL-CHAIN": "Slow answer",
+    "L6-EXHAUSTIVE-SEARCH": "Slow answer",
     "L6-UNSAFE-DEFAULT": "Wrong answer for the user", "L7-PREEMPTIVE-ROUTE": "Wrong answer path",
     "L7-SENSITIVE-SUPPRESSION": "Wrong answer path", "L7-MODERATION-DRIFT": "Overly cautious",
     "L8-LITERAL-EXAMPLE": "Wrong citations", "L8-CITATION-STRIP": "Wrong citations",
@@ -437,6 +438,19 @@ def _pattern_rules(doc: AgentDoc) -> list[Finding]:
         ))
 
     mandated = _match(L, r"\balways invoke\b")
+    hit = _first(L, _EXHAUSTIVE_SEARCH)
+    if hit:
+        out.append(Finding(
+            "L6-EXHAUSTIVE-SEARCH", "medium", "L6 Tool-call impact", "search",
+            "Instruction asks for several searches per question",
+            [hit.no], hit.text.strip()[:240],
+            "Each knowledge search takes about 10–20 seconds on agents with many sources, and the searches run one "
+            "after another, so answers take a minute or more. In a customer agent, three searches per question took "
+            "62 seconds on average against 21 seconds with one scoped search, without better answers.",
+            "Search once with the employee's words, make at most one broader retry, and stop when the results cover "
+            "every part of the question.",
+            ["What is the holiday schedule?", "How does severance pay work after a position elimination?"], "",
+        ))
     if len(mandated) >= 3:
         out.append(Finding(
             "L6-MANDATED-TOOL-CHAIN", "medium", "L6 Tool-call impact", "tool",
@@ -718,6 +732,12 @@ def _rule_pipeline_gaps(doc: AgentDoc) -> list[Finding]:
             ["How do I request time off?"], "",
         ))
     return out
+
+
+_EXHAUSTIVE_SEARCH = (r"\bsearch (all|every|each)( of the| of)? (\w+ )?(knowledge )?(sources?|sites?|connectors?)\b"
+                      r"|\bsearch (multiple|several|three|two|2|3) times\b|\bkeep searching\b|\bexhaustive(ly)? search"
+                      r"|\b(re-?search|search again)\b[^.]{0,40}\b(each|every|different|other) (source|site|connector)"
+                      r"|\bcross-check (all|every|each)\b")
 
 
 def validate(doc: AgentDoc, baseline: AgentDoc | None = None) -> list[Finding]:

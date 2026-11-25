@@ -42,8 +42,13 @@ Across the agents:
 | Hub instructions miss delegation rules | Pass the question verbatim, deliver the child's answer once, don't answer domain questions in the hub |
 | A child the hub can't call (connection setting off) | The hand-off fails |
 | Content moderation below the ESS template, model settings that differ, general knowledge or web search on | Safety and answers depend on which agent responds |
+| Workday user context still on the legacy ISU + RaaS topic | Every new session waits 7–10 seconds before the first answer; the simplified setup makes one `/workers/me` call per session |
+| More than 10 knowledge sources and no general search-and-answer topic scoped to the main source | Generative orchestration searches two or three times per question, 10–20 seconds each |
+| Two exports of the same agent (for example QA and production) with different topics or knowledge | Latency and quality measured in one environment don't carry over to the other |
 
 Each agent's instructions also go through the instruction check against its ESS template (HR, IT or hub).
+
+When the maker says the agent is slow, ask for an export of each environment they compare (for example QA and production) and, if they have one, a test pane snapshot or transcript of a slow question: the X-ray reports the question-to-answer time, the number of knowledge searches in that turn and the session start time. Recommend measuring latency and answer quality separately with the same users and questions; a faster answer isn't always as complete.
 
 ## Respond
 

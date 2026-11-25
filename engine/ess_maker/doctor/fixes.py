@@ -216,6 +216,11 @@ def _apply_one(f: Finding, doc: AgentDoc, t: _Text, baseline: AgentDoc | None) -
         "L8-RENDER-FORMAT": (r"[^.]*\b(tables?|markdown|html|code blocks?|emojis?|<br>|<table>)[^.]*\.?",
                              "Use short paragraphs and bullets; use a table only for comparisons or multi-column data.",
                              "Formatting now adapts to the content."),
+        "L6-EXHAUSTIVE-SEARCH": (r"[^.]*\b(search|searching|cross-check)\b[^.]*\b(all|every|each|multiple|several|three|two|"
+                                 r"again|exhaustive(ly)?)\b[^.]*\.?",
+                                 "Search once with the employee's words, retry at most once with broader terms, and stop "
+                                 "when the results cover every part of the question.",
+                                 "One search per question, with at most one retry."),
     }
     if rid in sentence_fixes:
         pat, repl, msg = sentence_fixes[rid]

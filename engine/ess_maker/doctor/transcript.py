@@ -281,6 +281,24 @@ def _head(s: str, n: int) -> str:
     return s if len(s) <= n else s[: n - 1] + "…"
 
 
+def _ts(a: dict) -> float | None:
+    """Activity time in seconds: timestampMs, a numeric timestamp (seconds or ms) or an ISO date."""
+    v = a.get("timestampMs")
+    if isinstance(v, (int, float)):
+        return v / 1000
+    v = a.get("timestamp")
+    if isinstance(v, (int, float)):
+        return v / 1000 if v > 1e11 else float(v)
+    v = v if isinstance(v, str) and v else a.get("localTimestamp")
+    if isinstance(v, str) and v:
+        iso = re.sub(r"(\.\d{6})\d+", r"\1", v.strip().replace("Z", "+00:00"))
+        try:
+            return datetime.fromisoformat(iso).timestamp()
+        except ValueError:
+            return None
+    return None
+
+
 def diagnose(doc: dict, question: str = "") -> dict:
     acts = _activities_of(doc)
     users, bots = [], []
@@ -293,10 +311,15 @@ def diagnose(doc: dict, question: str = "") -> dict:
     pending_terms = ""
     pii_queries: list[str] = []
     profile_searches: list[str] = []
+    seq_t: list[float | None] = []  # timestamp of each seq entry, in seconds
+    first_t: float | None = None
 
     for a in acts:
         typ, vt_raw = a.get("type") or "", a.get("valueType") or ""
         value = a.get("value")
+        now = _ts(a)
+        if now is not None and first_t is None:
+            first_t = now
         if typ == "message":
             text = a.get("text") or ""
             if re.search(r"consentCard|connectionManagerCard|oauthCard|signinCard", vt_raw + " " + str(a.get("name") or ""), re.I):
@@ -305,12 +328,15 @@ def diagnose(doc: dict, question: str = "") -> dict:
                 if text and not re.match(r"\s*(/|-developer\b)", text):
                     users.append(text)
                     seq.append(("user", text))
+                    seq_t.append(now)
                 elif text:
                     seq.append(("command", text))
+                    seq_t.append(now)
             elif text:
                 text = _dedupe_refs(re.sub(r"<[^>]{1,80}>", "", text).strip())
                 bots.append(text)
                 seq.append(("bot", text))
+                seq_t.append(now)
             continue
         vt = (vt_raw or a.get("name") or "").lower()
         if vt.startswith("dialogtracing"):
@@ -344,7 +370,7 @@ def diagnose(doc: dict, question: str = "") -> dict:
                 errs = [_head(json.dumps(e) if not isinstance(e, str) else e, 160) for e in _get(sr, "search_errors") or []]
                 rec = srch[-1] if srch and not srch[-1].get("from_step") else None
                 if rec is None:
-                    rec = {"terms": pending_terms, "count": 0, "docs": [], "errors": []}
+                    rec = {"terms": pending_terms, "count": 0, "docs": [], "errors": [], "t": now}
                     srch.append(rec)
                 rec.update(count=len(res), docs=[_s(r, "Name") or _s(r, "Url") for r in res], from_step=True)
                 rec["errors"] = rec.get("errors", []) + errs
@@ -374,7 +400,7 @@ def diagnose(doc: dict, question: str = "") -> dict:
             results = len(full) if isinstance(full, list) else _count(value, "filteredResults", "searchResults", "results")
             terms = _first(_s(value, "searchTerms"), _s(value, "rewrittenMessage"), _s(value, "query"), pending_terms)
             errs = [_head(json.dumps(e) if not isinstance(e, str) else e, 160) for e in _get(value, "searchErrors") or []]
-            srch.append({"terms": terms, "count": results, "errors": errs,
+            srch.append({"terms": terms, "count": results, "errors": errs, "t": now,
                          "docs": [_first(_s(_get(r, "metadata"), "title"), _s(r, "Name"), _s(r, "url")) for r in full or [] if isinstance(r, dict)]})
             pending_terms = ""
         elif "generativeanswers" in vt or "answersupport" in vt:
@@ -491,6 +517,37 @@ def diagnose(doc: dict, question: str = "") -> dict:
         steps.append("Keep personal details out of search queries: tell the instructions to search with the employee's question "
                      "plus only context that changes the answer (for example country), never names, emails or IDs.")
 
+    # Latency: question to answer, searches in that turn, and session start.
+    answer_s = turn_searches = start_s = None
+    if qi is not None and seq_t[qi] is not None:
+        nxt = next((i for i in range(qi + 1, len(seq)) if seq[i][0] == "user"), len(seq))
+        bot_ts = [seq_t[i] for i in range(qi + 1, nxt) if seq[i][0] == "bot" and seq_t[i] is not None]
+        if bot_ts:
+            answer_s = max(bot_ts) - seq_t[qi]
+            turn_searches = sum(1 for s in srch if s.get("t") is not None and seq_t[qi] <= s["t"] <= max(bot_ts))
+    first_bot = next((seq_t[i] for i in range(len(seq)) if seq[i][0] == "bot" and seq_t[i] is not None), None)
+    first_user = next((seq_t[i] for i in range(len(seq)) if seq[i][0] == "user" and seq_t[i] is not None), None)
+    if first_t is not None and first_bot is not None and (first_user is None or first_bot <= first_user):
+        start_s = first_bot - first_t
+    workday_ctx = any(re.search(r"workday", t, re.I) and re.search(r"user ?context", t, re.I) for t in topics)
+    if answer_s is not None:
+        details["answerTime"] = f"{answer_s:.1f} s" + (f" ({turn_searches} knowledge search(es))" if turn_searches else "")
+        if answer_s >= 30 or (turn_searches or 0) >= 2:
+            happened.append(f"The answer took {answer_s:.0f} seconds" + (f" and {turn_searches} knowledge searches"
+                                                                         if turn_searches and turn_searches > 1 else "") + ".")
+            steps.append("Speed up answers: " + ("several searches ran one after another, each adding 10–20 seconds. "
+                                                 if (turn_searches or 0) >= 2 else "")
+                         + "Route the main HR subjects to a search-and-answer topic scoped to the primary knowledge source, "
+                         "keep the instructions to one search with at most one retry, and reduce overlapping knowledge "
+                         "sources. Run the agent audit for the details.")
+    if start_s is not None:
+        details["sessionStart"] = f"{start_s:.1f} s"
+        if start_s >= 5 and workday_ctx:
+            happened.append(f"The session took {start_s:.0f} seconds to start while the Workday user-context topic ran.")
+            steps.append("Upgrade the Workday user context to the simplified setup (one /workers/me call per session, "
+                         "\"Workday [System] - 1: Set User Context V2\"): "
+                         "https://learn.microsoft.com/copilot/employee-self-service/workday-upgrade-to-simplified")
+
     details.update({"activities": str(len(acts)), "testPane": "yes" if design else "",
                     "planned": ", ".join(uniq(planned)), "topics": ", ".join(uniq(topics)),
                     "failedSteps": "; ".join(failed), "knowledgeSearches": str(len(searches)) if searches else ""})
@@ -514,6 +571,7 @@ def _section(title: str) -> list[str]:
 
 
 _LABEL = {"sessionOutcome": "Session outcome", "turns": "Turns", "activities": "Activities", "testPane": "Test pane",
+          "answerTime": "Question to answer", "sessionStart": "Session start",
           "planned": "Planned", "topics": "Topics", "failedSteps": "Failed steps", "knowledgeSearches": "Knowledge searches"}
 
 

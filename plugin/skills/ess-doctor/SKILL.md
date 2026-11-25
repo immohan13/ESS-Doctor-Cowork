@@ -36,6 +36,7 @@ For each step, follow that skill's own `SKILL.md` (its Run, Respond and Rules se
 | "Add a rule / don't talk about X / use this format / add a synonym" | `instruction-draft` | `draft` |
 | Evaluation results CSV, or two of them (before and after) | `eval-triage` | `eval-triage` / `eval-compare` |
 | Hub and child agents (snapshots, ALM exports, YAML) | `agent-audit` | `audit` |
+| "The agent is slow", "answers take a minute", QA slower than production | `agent-audit` on each environment's export, then `conversation-xray` on a slow conversation | `audit`, `xray` |
 | ServiceNow knowledge setup questions | `servicenow-setup` | `setup-servicenow` |
 
 Chain the skills the way their reports point, without waiting to be asked:

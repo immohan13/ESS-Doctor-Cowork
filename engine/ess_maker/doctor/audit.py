@@ -57,6 +57,19 @@ class Topic:
     active: bool
     searches: int
     scoped_sources: list[str] = field(default_factory=list)
+    user_context: str = ""  # Workday user-context topic: "legacy" (ISU + RaaS) or "v2" (/workers/me)
+    description: str = ""
+
+    @property
+    def general_search(self) -> bool:
+        """An active search-and-answer topic whose description covers the main HR or IT subjects (not one narrow subject)."""
+        subjects = re.findall(r"\b(benefit|pay|payroll|tax|retire|holiday|pto|leave|time off|well-?being|performance|"
+                              r"employ(ee|ment)|polic(y|ies)|handbook|hardware|software|access|password|device|network)",
+                              self.description, re.I)
+        if re.search(r"sensitive|escalat|harass|self-?harm|suicid|threat|crisis|mental health|grievance",
+                     f"{self.name} {self.schema}", re.I):
+            return False
+        return self.active and self.searches > 0 and len({s[0].lower() for s in subjects}) >= 4
 
 
 @dataclass
@@ -148,6 +161,16 @@ def _flag(text: str, key: str) -> bool | None:
     return None if not m else m.group(1).lower() == "true"
 
 
+def _user_context(name: str, schema: str, comp: str) -> str:
+    """'legacy' or 'v2' for a Workday user-context topic, '' for any other topic."""
+    key = f"{name} {schema}"
+    if not (re.search(r"workday", key, re.I) and re.search(r"user ?context", key, re.I)):
+        return ""
+    if re.search(r"ISU_(WQL|Generic)_COPILOT|\bRaaS\b|customreport2?", comp, re.I):
+        return "legacy"
+    return "v2" if re.search(r"\bV2\b|workers/me", key + comp, re.I) else "legacy"
+
+
 def parse(text: str, file: str = "") -> Agent:
     text = (text or "").lstrip("\ufeff").replace("\r\n", "\n")
     a = Agent(file=file)
@@ -200,9 +223,11 @@ def parse(text: str, file: str = "") -> Agent:
             trig = re.search(r"beginDialog:\s*\n\s+kind:\s*(\w+)", comp)
             scoped = []
             for blk in re.finditer(r"kind: SearchSpecificKnowledgeSources\s*\n\s+knowledgeSources:\s*\n((?:\s+- \S+\n?)+)", comp):
-                scoped += re.findall(r"- (\S+)", blk.group(1))
+                scoped += [s for s in re.findall(r"- (\S+)", blk.group(1)) if not s.endswith(":")]
             a.topics.append(Topic(name, schema, trig.group(1) if trig else "", state,
-                                  comp.count("kind: SearchAndSummarizeContent"), sorted(set(scoped))))
+                                  comp.count("kind: SearchAndSummarizeContent"), sorted(set(scoped)),
+                                  _user_context(name, schema, comp),
+                                  _scalar(comp, "modelDescription") or _scalar(comp, "description", fi)))
     if not a.name:
         a.name = a.schema or file
     return a
@@ -417,6 +442,75 @@ def audit(agents: list[Agent]) -> dict:
                             "The hub instructions don't say to " + "; or to ".join(missing) + ".",
                             "Add a short delegation section: " + " ".join(f"- {m[:1].upper() + m[1:]}." for m in missing),
                             change=["+ # Delegation"] + [f"+ - {m[:1].upper() + m[1:]}." for m in missing]))
+
+    # Latency: legacy Workday user context, unscoped search over many sources, environments that differ.
+    for a in agents:
+        ctx = [t for t in a.topics if t.user_context and t.active]
+        legacy = [t for t in ctx if t.user_context == "legacy"]
+        if legacy:
+            v2 = next((t for t in a.topics if t.user_context == "v2"), None)
+            gaps.append(Gap("A19-WORKDAY-LEGACY-USER-CONTEXT", "high", [a.name],
+                            "Workday user context uses the legacy setup",
+                            f"\"{legacy[0].name}\" looks up the employee with the legacy ISU + RaaS report on every new "
+                            "session. A customer agent with this setup measured 7–10 seconds before the first answer of each "
+                            "session." + (f" The V2 topic \"{v2.name}\" is in the agent but not the one in use." if v2 else ""),
+                            "Follow Microsoft's upgrade to the simplified Workday setup "
+                            "(https://learn.microsoft.com/copilot/employee-self-service/workday-upgrade-to-simplified): it "
+                            "replaces the lookup with one /workers/me call per session, cached for the session, and switches "
+                            "the agent to \"Workday [System] - 1: Set User Context V2\". Then measure session start again.",
+                            change=_setting(f"{a.name} > Workday user-context topic in use", legacy[0].name,
+                                            v2.name if v2 else "Workday [System] - 1: Set User Context V2")))
+        active = [k for k in a.knowledge if k.active and k.auto_search]
+        search_topics = [t for t in a.topics if t.general_search]
+        if a.topics and not a.is_hub and len(active) > 10 and not search_topics:
+            connectors = [k.name for k in active if k.target.startswith("connector:")]
+            gaps.append(Gap("A20-NO-SCOPED-SEARCH-TOPIC", "high" if len(active) > KNOWLEDGE_FILTER_LIMIT else "medium",
+                            [a.name], "No dedicated search-and-answer topic for the main knowledge source",
+                            f"Every question is answered by generative orchestration across {len(active)} knowledge "
+                            "sources, which often searches two or three times before answering. In a customer agent each "
+                            "search took 10–20 seconds: answers averaged 62 seconds and drew on up to 39 documents, against "
+                            "21 seconds with one search-and-answer topic scoped to the HR knowledge connector.",
+                            "Add a topic whose description covers the main HR subjects, with a Generative answers "
+                            "(search and summarize) node scoped to the primary source"
+                            + (f" ({connectors[0]})" if connectors else "")
+                            + ". Widen the scope only if evaluations show content is missing, and compare answer quality "
+                            "as well as speed: faster isn't always as complete.",
+                            change=["+ Topic: <HR> search and answer (Generative answers node, knowledge: "
+                                    + (connectors[0] if connectors else "<primary source>") + " only)"]))
+
+    def base_name(x: Agent) -> str:
+        n = re.sub(r"(?i)[\s_\-\(\[]*(qa|uat|test|dev|sandbox|prod|production|preprod|stage|staging)[\)\]]?\b", " ", x.name)
+        return _norm(n)
+
+    by_base: dict[str, list[Agent]] = {}
+    for a in agents:
+        if a.full_export:
+            by_base.setdefault(base_name(a), []).append(a)
+    for group in by_base.values():
+        if len(group) != 2:
+            continue
+        x, y = group
+        tx = {t.name for t in x.topics if t.active}
+        ty = {t.name for t in y.topics if t.active}
+        only_x, only_y = sorted(tx - ty), sorted(ty - tx)
+        kx, ky = len([k for k in x.knowledge if k.active]), len([k for k in y.knowledge if k.active])
+        if not (only_x or only_y or kx != ky):
+            continue
+        parts = []
+        if only_x:
+            parts.append(f"{len(only_x)} topic(s) only in {x.name} ({', '.join(only_x[:3])}{'…' if len(only_x) > 3 else ''})")
+        if only_y:
+            parts.append(f"{len(only_y)} topic(s) only in {y.name} ({', '.join(only_y[:3])}{'…' if len(only_y) > 3 else ''})")
+        if kx != ky:
+            parts.append(f"{kx} knowledge sources in {x.name} against {ky} in {y.name}")
+        gaps.append(Gap("A21-ENVIRONMENT-DRIFT", "medium", [x.name, y.name],
+                        "The two environments of this agent are set up differently",
+                        "; ".join(parts) + ". Latency and answer quality measured in one environment don't carry over "
+                        "to the other: in a customer agent, a search topic missing from QA made answers three times "
+                        "slower there than in production.",
+                        "Make the environments match (deploy the same solution version), then compare latency and "
+                        "answer quality with the same users and questions.",
+                        change=[f"+ {x.name}: add topic {n}" for n in only_y[:6]] + [f"+ {y.name}: add topic {n}" for n in only_x[:6]]))
 
     # Settings drift from the ESS templates and between hub and children.
     for a in agents:

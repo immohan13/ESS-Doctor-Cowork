@@ -736,3 +736,49 @@ def test_snapshot_without_a_question_is_reported_and_routed_to_check():
     assert "The snapshot has no question in it" in outs[0] and "Save snapshot right after the answer" in outs[0]
     assert "FAILED HERE" not in outs[0]
     assert "without a question" in outs[1] and "| instruction-check |" in outs[1]
+
+
+def test_latency_checks_from_the_hr_agent_latency_investigation():
+    from ess_maker.doctor import audit
+    from ess_maker.doctor.agent_file import from_instructions
+    from ess_maker.doctor.fixes import fix
+    from ess_maker.doctor.rules import validate
+
+    # Instructions that ask for several searches per question.
+    doc = from_instructions("# Grounding\n- Search all knowledge sources and cross-check every source before answering.\n", "t")
+    assert any(f.rule_id == "L6-EXHAUSTIVE-SEARCH" for f in validate(doc))
+    fixed = fix(doc, None, ["L6-EXHAUSTIVE-SEARCH"])["new_instructions"]
+    assert "retry at most once" in fixed and "Search all knowledge sources" not in fixed
+
+    # Agent export: legacy Workday user context, 12 sources and no general search topic.
+    ks = "".join(f"  - kind: KnowledgeSourceComponent\n    displayName: Site {i}\n    schemaName: ks{i}\n    configuration:\n"
+                 f"      source:\n        kind: SharePointSearchSource\n        site: https://contoso.sharepoint.com/sites/hr{i}\n"
+                 for i in range(12))
+    def agent(name, topics):
+        return (f"kind: BotDefinition\nentity:\n  displayName: {name}\n  schemaName: cr_{name.replace(' ', '')}\ncomponents:\n"
+                + ks + topics)
+    legacy = ("  - kind: DialogComponent\n    displayName: \"Workday [System] - 1: Set User Context\"\n"
+              "    schemaName: cr.topic.WorkdaySystemGetUserContext\n    dialog:\n      beginDialog:\n        kind: OnRedirect\n"
+              "      actions:\n        - kind: InvokeFlowAction\n          input: ISU_WQL_COPILOT RaaS customreport2\n")
+    search = ("  - kind: DialogComponent\n    displayName: HR search\n    schemaName: cr.topic.HRSearch\n"
+              "    modelDescription: Benefits, pay and taxes, retirement, holidays and PTO, leave, well-being and performance.\n"
+              "    dialog:\n      beginDialog:\n        kind: OnRecognizedIntent\n      actions:\n"
+              "        - kind: SearchAndSummarizeContent\n")
+    qa, prod = audit.parse(agent("Contoso HR QA", legacy), "qa"), audit.parse(agent("Contoso HR", legacy + search), "prod")
+    ids = {g.rule_id: g for g in audit.audit([qa, prod])["gaps"]}
+    assert "A19-WORKDAY-LEGACY-USER-CONTEXT" in ids and "/workers/me" in ids["A19-WORKDAY-LEGACY-USER-CONTEXT"].fix
+    assert ids["A20-NO-SCOPED-SEARCH-TOPIC"].agents == ["Contoso HR QA"]
+    assert "+ Contoso HR QA: add topic HR search" in ids["A21-ENVIRONMENT-DRIFT"].change
+
+
+def test_xray_reports_slow_answers_and_search_rounds():
+    acts = [{"type": "message", "from": {"role": 1}, "text": "Holiday schedule", "timestamp": "2026-11-25T01:00:00.0000000+00:00"},
+            {"type": "event", "valueType": "UniversalSearchToolTraceData", "timestamp": "2026-11-25T01:00:15.1234567+00:00",
+             "value": {"searchTerms": "holiday schedule", "fullResults": [{"Name": "a"}]}},
+            {"type": "event", "valueType": "UniversalSearchToolTraceData", "timestamp": "2026-11-25T01:00:30+00:00",
+             "value": {"searchTerms": "holidays 2026", "fullResults": [{"Name": "b"}]}},
+            {"type": "message", "from": {"role": 0}, "text": "Here is the holiday schedule.", "timestamp": "2026-11-25T01:00:42.5+00:00"}]
+    d = transcript.diagnose({"activities": acts})
+    assert d["details"]["answerTime"].startswith("42.5 s (2 knowledge search")
+    assert any("took 42 seconds and 2 knowledge searches" in h for h in d["happened"])
+    assert any(s.startswith("Speed up answers") for s in d["next_steps"])
