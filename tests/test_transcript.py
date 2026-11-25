@@ -901,14 +901,20 @@ def test_no_customer_names_in_shipped_text():
     import re as _re
     from pathlib import Path
 
-    # Customer names, encoded so this test doesn't add them to the repo.
-    names = _re.compile(base64.b64decode("d2VsbHNccypmYXJnb3xub3J0aGVyblxzKnRydXN0fGthbnRhcnxzZWRnd2ljaw==").decode(), _re.I)
+    # Customer names, and the names of their agents and products, encoded so this test doesn't add them to the repo.
+    names = _re.compile(base64.b64decode("d2VsbHNccypmYXJnb3xub3J0aGVyblxzKnRydXN0fGthbnRhcnxzZWRnd2ljaw==").decode()
+                        + "|" + base64.b64decode("d2ZwaWxvdHxtYWtldCBkYXRhfGJ5cm9u").decode(), _re.I)
+    upper = _re.compile(base64.b64decode("XGJEQVNIXGJ8XGJQR0FcYg==").decode())  # all-caps agent names only
     root = Path(__file__).resolve().parent.parent
+
+    def bad(text: str) -> bool:
+        return bool(names.search(text) or upper.search(text))
+
     hits = [str(p.relative_to(root)) for d in ("plugin", "engine", "samples") for p in (root / d).rglob("*")
             if p.suffix in (".md", ".py", ".json", ".txt", ".yml", ".yaml", ".csv")
-            and names.search(p.read_text(encoding="utf-8", errors="ignore"))]
+            and bad(p.read_text(encoding="utf-8", errors="ignore"))]
     hits += [f for f in ("README.md", "essdoctor_cli.py", "build.py")
-             if (root / f).exists() and names.search((root / f).read_text(encoding="utf-8", errors="ignore"))]
+             if (root / f).exists() and bad((root / f).read_text(encoding="utf-8", errors="ignore"))]
     assert not hits, hits
 
 def test_sessions_xray_places_the_blank_details_rule_and_fix_adds_it():
