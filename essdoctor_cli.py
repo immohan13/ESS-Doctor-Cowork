@@ -379,21 +379,62 @@ def cmd_draft(a) -> str:
                for q in r.get("questions") or r.get("needs_input") or []]
         return "\n".join(md)
     _write(a.out, r["new_instructions"])
-    md = ["## ESS Doctor draft", "", _cell(r.get("summary") or f"Drafted a {CHANGE_TYPES[intake.change_type]} change."),
-          f"The new instructions are in `{a.out}`.", ""]
-    if r.get("clause"):
-        md += ["### Added text", "", "```text", r["clause"].strip(), "```", ""]
-    if r.get("diff"):
-        md += ["### What changed", "", _diff_md(r["diff"]), ""]
-    for key, title in (("new_findings", "New findings this change introduces"), ("conflicts", "Conflicts"),
-                       ("warnings", "Warnings")):
-        items = r.get(key) or []
-        if items:
-            md += [f"### {title}", ""] + [f"- {_cell(x if isinstance(x, str) else x.get('title') or x.get('message') or json.dumps(x))}" for x in items] + [""]
-    tests = r.get("tests") or r.get("test_prompts") or []
-    if tests:
-        md += ["### Test with", ""] + [f"- {_cell(t if isinstance(t, str) else t.get('prompt') or t)}" for t in tests[:12]] + [""]
+    return _draft_report(a, intake, r, studio_len(doc.instruction_text))
+
+
+_PLACE = {"knowledge_source_description": "the knowledge source's description",
+          "topic_description": "the descriptions of the topics that own this subject",
+          "topic_response_template": "those topics' response templates"}
+
+
+def _draft_report(a, intake, r: dict, before: int) -> str:
+    after = studio_len(r["new_instructions"])
+    blocks = [b for b in (r.get("diff") or {}).get("blocks") or [] if b.get("status") != "unchanged"]
+    section = ", ".join(re.sub(r"\s*\(.*$", "", b["title"]).strip() for b in blocks) or "Instructions"
+    new = r.get("introduced_findings") or []
+    worst = next((s for s in ("high", "medium", "low") if any(f.get("severity") == s for f in new)), "")
+    issues = ("✅ none" if not new else
+              " · ".join(f"{_SEV[s]} {sum(1 for f in new if f.get('severity') == s)} {s}"
+                         for s in ("high", "medium", "low") if any(f.get("severity") == s for f in new)))
+    size = "❌" if after > DA_INSTRUCTION_LIMIT else "⚠️" if after > DA_INSTRUCTION_LIMIT * 0.9 else "✅"
+    md = ["## Instruction draft", "",
+          "| Change | Goes in | Length after (Copilot Studio count) | New issues |", "| --- | --- | --- | --- |",
+          f"| {CHANGE_TYPES[intake.change_type]} | {_cell(section)} | {size} {after:,} of {DA_INSTRUCTION_LIMIT:,} "
+          f"({after - before:+,}) | {issues} |", "",
+          "### Added text", "", "```text", (r.get("clause") or "").strip(), "```", ""]
+    place = r.get("placement") or {}
+    if place.get("target") and place["target"] != "instructions":
+        owners = f" ({', '.join(place['owners'][:3])})" if place.get("owners") else ""
+        md += [f"> 💡 **Also put this in {_PLACE.get(place['target'], place['target'])}{owners}.** {_cell(place.get('why'))}", ""]
+
+    checks = []
+    for f in new:
+        checks.append(f"- {_SEV.get(f.get('severity'), '')} **{_cell(f.get('title'))}** (line {_lines(f)}): {_cell(f.get('fix'))}"
+                      + (" Run `condense` on the draft." if f.get("rule_id") == "L0-LENGTH" else ""))
+    for c in r.get("collisions") or []:
+        what = f"\"{c['query']}\"" if c.get("query") else f"topic {c.get('topic')}"
+        checks.append(f"- ⚠️ {what} shares {', '.join(c.get('terms') or [])} with the change: {_cell(c.get('risk'))}")
+    if r.get("source_note"):
+        checks.append(f"- ⚠️ {_cell(r['source_note'])}")
+    if after > DA_INSTRUCTION_LIMIT and not any(f.get("rule_id") == "L0-LENGTH" for f in new):
+        checks.append(f"- ❌ The instructions are {after - DA_INSTRUCTION_LIMIT:,} characters over the limit: shorten them "
+                      "(`condense`) before publishing, or Copilot Studio cuts off the end.")
+    unused = [u for u in r.get("unused") or [] if _cell(u).strip(" .").lower() != _cell(intake.intent).strip(" .").lower()]
+    if unused:
+        checks.append("- ℹ️ These parts of the request didn't become part of the rule: "
+                      + "; ".join(f"\"{_cell(u)}\"" for u in unused[:4]) + ".")
+    md += ["### Check before publishing", ""] + (checks or ["✅ No new findings or conflicts."]) + [""]
+
+    tests = r.get("tests") or []
+    changed = [t["prompt"] for t in tests if isinstance(t, dict) and t.get("expect") == "changed"]
+    same = [t["prompt"] for t in tests if isinstance(t, dict) and t.get("expect") != "changed"]
+    if changed or same:
+        md += ["### Test after publishing", "", "| Should follow the new rule | Should behave as before |", "| --- | --- |"]
+        for i in range(max(len(changed), len(same))):
+            md.append(f"| {_cell(changed[i]) if i < len(changed) else ''} | {_cell(same[i]) if i < len(same) else ''} |")
+        md.append("")
     md += _evalset(a, tests, a.out)
+    md += ["### What changed", "", _diff_md(r.get("diff") or {}), ""]
     return "\n".join(md)
 
 

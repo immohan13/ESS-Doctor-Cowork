@@ -9,7 +9,7 @@ You turn a maker's intended change into instruction text that fits the ESS templ
 
 ## Collect the change
 
-Ask only for what's missing, in one message:
+Ask only for what's missing, in **one** message, never one question at a time. Ask for the instructions in the same message (or read them through the Business apps connector, see `instruction-check`), and offer the change type you inferred so the maker only confirms it:
 
 | Change type (`change_type`) | Details to collect (`intake` fields) |
 | --- | --- |
@@ -22,7 +22,7 @@ Ask only for what's missing, in one message:
 | `disclaimer` | exact `disclaimer_text`; optional `disclaimer_style` (`bold`, `italic`); optional `scope` |
 | `context` | profile fields the answer depends on as `subject` (for example "country and job level"); optional `scope` (which questions). Drafts one rule: use the user context values, ask or give the base policy when one is blank, and keep names, emails and IDs out of search queries |
 
-Also ask for 2–4 example questions that **should** change (`should_affect`) and 2–4 that **must not** (`must_not_affect`). Always put the maker's own words in `intent`.
+Also ask for 2–4 example questions that **should** change (`should_affect`) and 2–4 that **must not** (`must_not_affect`); propose your own examples in the same message so the maker can just accept them. Always put the maker's own words in `intent`.
 
 Save the instructions to `inputs/current.txt` (or use the uploaded agent file), and the details to `inputs/intake.json`, for example:
 
@@ -50,11 +50,13 @@ If the draft report says more detail is needed, ask the maker those questions an
 
 ## Respond
 
-1. Show the draft report (added text, where it went, what changed) as returned.
-2. Show the `check` report for the new version, highlighting "Findings introduced by this change". If the change introduced a high finding, say so plainly and propose a narrower wording, then re-run.
-3. You may suggest clearer wording for the added clause, but keep it in the same section, and re-run `check` on any edited version before offering it.
-4. Hand over `outputs/drafted_instructions.txt`: print it (`cat outputs/drafted_instructions.txt`) and show its full content, unchanged, inside one fenced code block marked `text`, then list the example questions to test after publishing.
-5. Always share `outputs/evalset.csv` as a downloadable file, and tell the maker how to use it: in Copilot Studio open the agent > **Evaluation** > **Create a test set** > upload the CSV, run it on the current version, publish the change, run it again, then upload both results files here to compare them with `eval-compare`.
+1. Show the draft report as returned, as Markdown (not in a code block), so its summary table, test table and checks render. Don't rebuild its tables.
+2. If the report says the instructions are over the length limit, run `condense outputs/drafted_instructions.txt --target 8000 --out outputs/drafted_instructions.txt --no-evalset` (don't shorten lines yourself; `--no-evalset` keeps the draft's test set), run `check --no-evalset` on the result, and use it from here on. Say in one line how much was cut and that no ESS core block changed.
+3. Run `check --no-evalset` on the final file. If it introduced a high finding, say so plainly, propose a narrower wording in the same section and re-run. You may suggest clearer wording for the added clause, but re-run `check` on any edited version before offering it.
+4. Then add **What to check** in at most three bullets: what the report flags, any assumption you made (for example how the agent knows who the rule applies to), and whether the new rule's subject or source name overlaps a restriction already in the instructions (for example a source whose name contains a restricted word). Don't repeat the report's tables.
+5. Then **Final instructions**: print the final file (`cat`) and show its full content, unchanged, inside one fenced code block marked `text`. Put it last so the maker doesn't scroll past it, with the copy steps from "Applying" in one line under it.
+6. Share `outputs/evalset.csv` (and the instructions file) as downloadable files, with the four import steps: in Copilot Studio open the agent > **Evaluation** > **Create a test set** > upload the CSV; run it on the current version; publish the change and run it again; upload both results files here to compare them with `eval-compare`.
+7. Keep it scannable: no headings beyond "What to check" and "Final instructions", bold only key numbers, and no emoji beyond those in the report.
 
 ## Applying
 

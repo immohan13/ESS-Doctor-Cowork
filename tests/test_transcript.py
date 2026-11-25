@@ -386,3 +386,28 @@ def test_check_report_orders_findings_and_splits_practice_gaps():
     assert "🔴" in first and "**Employees see:**" in first and "**Fix:**" in first
     assert "| Practice | Add under | Text to add |" in report
     assert "Copilot Studio count" in report
+
+
+def test_draft_report_shows_summary_checks_and_test_table():
+    import contextlib
+    import tempfile
+    from pathlib import Path
+    import essdoctor_cli
+
+    instructions = "#Core identity\nYou are an HR agent.\n\n#Routing\n- Policy questions: KB search.\n"
+    intake = {"change_type": "routing", "intent": "VEO questions use the CAP source", "subject": "VEO",
+              "source_name": "CAP site", "mode": "only",
+              "should_affect": ["What is VEO?"], "must_not_affect": ["How much PTO do I have?"]}
+    with tempfile.TemporaryDirectory() as d:
+        src, req = Path(d) / "current.txt", Path(d) / "intake.json"
+        src.write_text(instructions, encoding="utf-8")
+        req.write_text(json.dumps(intake), encoding="utf-8")
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            assert essdoctor_cli.main(["draft", str(src), "--intake", str(req), "--out", str(Path(d) / "draft.txt")]) == 0
+    report = out.getvalue()
+
+    assert "| Route a subject to a knowledge source | Routing |" in report
+    assert "Also put this in the knowledge source's description" in report
+    assert "### Check before publishing" in report
+    assert "| What is VEO? | How much PTO do I have? |" in report
