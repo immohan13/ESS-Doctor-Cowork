@@ -9,17 +9,18 @@ You audit a multi-agent ESS deployment, a hub (parent) agent that routes to chil
 
 ## Collect the agents
 
-Ask for every agent in one message: the hub and each child agent it routes to.
+Ask for every agent in one message: the hub and each child agent it routes to. How to export depends on the agent type:
 
-- **Best: a test pane snapshot of each agent.** In Copilot Studio, open the agent, open the **Test** pane, ask any question, then select **⋯ > Save snapshot**. The zip's `botContent.yml` holds the agent's settings, instructions, knowledge sources, topics and connected agents. Repeat for each agent, or zip the snapshots together.
-- **Also accepted:** an agent's YAML (`botContent.yml`, or the instructions component from a solution or ALM export). An instructions-only file is audited for instructions and routing, not for knowledge or settings; say so.
+- **Declarative agent (DA): ALM export.** In Copilot Studio, open the agent > **Settings** > **ALM** > **Export agent**, and upload the zip. It holds `Plugin/Agents/<agent>/agent.yml` (settings, instructions, knowledge sources, topics) and `app.config.<environment>.json`, whose values (such as the agent name and knowledge source URLs) are filled in before the audit. Export each agent, or upload one zip that holds several.
+- **Custom engine agent (CEA): test pane snapshot.** In Copilot Studio, open the agent, open the **Test** pane, ask any question, then select **⋯ > Save snapshot**. The zip's `botContent.yml` holds the same parts. Repeat for each agent, or zip the snapshots together.
+- **Also accepted:** an agent's YAML (`botContent.yml`, `agent.yml`, or the instructions component from a solution export). An instructions-only file is audited for instructions and routing, not for knowledge or settings; say so.
 
 Child agents owned by other teams can be left out; the report lists the ones the hub routes to that weren't uploaded.
 
 ## Run
 
 ```bash
-python3 scripts/essdoctor.py audit inputs/hub.zip inputs/hr.zip inputs/it.zip
+python3 scripts/essdoctor.py audit inputs/hub.zip inputs/hr.zip inputs/it.zip     # DA ALM exports or CEA snapshots
 python3 scripts/essdoctor.py audit inputs/agents.zip
 ```
 

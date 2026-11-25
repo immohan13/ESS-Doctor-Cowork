@@ -523,3 +523,33 @@ def test_agent_audit_finds_multi_agent_gaps():
             "A12-CHILD-NOT-CONNECTABLE", "A13-HISTORY-TO-EVERY-CHILD", "A14-CHILD-DESCRIPTION-VAGUE",
             "A16-HUB-DELEGATION-RULES", "A17-MODERATION-BELOW-TEMPLATE", "A18-MODEL-SETTINGS-DIFFER"} <= ids
     assert "A06-KNOWLEDGE-OVER-25" not in ids
+
+
+def test_agent_audit_reads_alm_exports_with_config_values():
+    import contextlib
+    import tempfile
+    import zipfile
+    from pathlib import Path
+    import essdoctor_cli
+
+    agent = ("kind: BotDefinition\nentity:\n  displayName: ${config.values[\"botName\"]}\n  schemaName: contoso_hr\n"
+             "  configuration:\n    aISettings:\n      contentModeration: Low\ncomponents:\n"
+             "  - kind: GptComponent\n    schemaName: contoso_hr.gpt.default\n    metadata:\n      instructions: |-\n"
+             "        # Core identity\n        You are an HR agent.\n      gptCapabilities: {}\n"
+             "  - kind: KnowledgeSourceComponent\n    displayName: Policies\n    schemaName: contoso_hr.knowledge.Policies\n"
+             "    configuration:\n      source:\n        kind: SharePointSearchSource\n"
+             "        site: ${config.values[\"knowledge:contoso_hr.knowledge.Policies:site\"]}\n")
+    config = {"values": {"botName": "Contoso HR", "knowledge:contoso_hr.knowledge.Policies:site": "https://contoso.sharepoint.com/sites/hr"}}
+    with tempfile.TemporaryDirectory() as d:
+        z = Path(d) / "export.zip"
+        with zipfile.ZipFile(z, "w") as f:
+            f.writestr("Plugin/package.json", "{}")
+            f.writestr("Plugin/Agents/contoso_hr/agent.yml", agent)
+            f.writestr("Plugin/Agents/contoso_hr/app.config.dev.json", json.dumps(config))
+        files = essdoctor_cli._agent_files([str(z)])
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            assert essdoctor_cli.main(["audit", str(z)]) == 0
+
+    assert len(files) == 1 and "https://contoso.sharepoint.com/sites/hr" in files[0][1]
+    assert "| Contoso HR |" in out.getvalue() and "Content moderation is Low" in out.getvalue()

@@ -156,6 +156,9 @@ def parse(text: str, file: str = "") -> Agent:
     if re.search(r"(?m)^kind: BotDefinition", head):
         a.full_export = True
         a.schema = _scalar(head, "schemaName", 2)
+        ent_name = _scalar(head, "displayName", 2)
+        if ent_name and "${" not in ent_name:
+            a.name = ent_name
         a.connectable = _flag(head, "isAgentConnectable")
         for k in ("useModelKnowledge", "isFileAnalysisEnabled", "isSemanticSearchEnabled", "optInUseLatestModels",
                   "GenerativeActionsEnabled"):

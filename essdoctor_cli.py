@@ -718,8 +718,24 @@ def cmd_sorry(a) -> str:
 
 
 def _agent_files(paths: list[str]) -> list[tuple[str, str]]:
-    """(name, YAML text) for each agent: .yml/.yaml files, test pane snapshots, or zips holding either."""
+    """(name, YAML text) for each agent: .yml/.yaml files, test pane snapshots, Copilot Studio ALM exports
+    (Plugin/Agents/<agent>/agent.yml with app.config.<realm>.json values filled in), or zips holding any of these."""
     out: list[tuple[str, str]] = []
+
+    def alm(z: zipfile.ZipFile, name: str) -> bool:
+        agents = [n for n in z.namelist() if re.search(r"(?i)(^|/)Agents/[^/]+/agent\.ya?ml$", n)]
+        for n in agents:
+            folder = n.rsplit("/", 1)[0]
+            values: dict = {}
+            for c in sorted(x for x in z.namelist() if x.startswith(folder + "/") and re.search(r"(?i)app\.config\.[^/]*\.json$", x)):
+                try:
+                    values.update((json.loads(_text(z.read(c))) or {}).get("values") or {})
+                except ValueError:
+                    pass
+            text = re.sub(r'\$\{config\.values\["([^"]+)"\]\}', lambda m: str(values.get(m.group(1), m.group(0))),
+                          _text(z.read(n)))
+            out.append((f"{name}/{folder.rsplit('/', 1)[-1]}", text))
+        return bool(agents)
 
     def add(name: str, data: bytes, depth: int = 0) -> None:
         snap = _snapshot(data)
@@ -729,6 +745,8 @@ def _agent_files(paths: list[str]) -> list[tuple[str, str]]:
             return
         if zipfile.is_zipfile(io.BytesIO(data)) and depth < 2:
             with zipfile.ZipFile(io.BytesIO(data)) as z:
+                if alm(z, name):
+                    return
                 for i in z.infolist():
                     if not i.is_dir() and re.search(r"(?i)\.(ya?ml|zip)$", i.filename):
                         add(f"{name}/{Path(i.filename).name}", z.read(i), depth + 1)
