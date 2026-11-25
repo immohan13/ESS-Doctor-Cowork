@@ -298,3 +298,18 @@ def test_agent_level_custom_events_use_real_field_names():
     assert info["test_pane"] is True and info["steps"] == 1 and info["spans"] == 0
     assert info["logger"] == ["UserContextLog: User context validation start"]
     assert "other conversation" not in json.dumps(acts)
+
+
+def test_business_apps_transcript_rows_pick_the_question():
+    def row(q, a, when):
+        content = json.dumps({"activities": [_msg(1, q), _msg(0, a)]})
+        return {"conversationtranscriptid": when, "conversationstarttime": when, "content": content}
+
+    rows = json.dumps([row("Show my tickets", "Here are your tickets.", "2026-11-25T05:00:00Z"),
+                       row("what is my leave policy", "I couldn't verify your country.", "2026-11-25T04:00:00Z")])
+
+    report = transcript.build(rows, question="what is my leave policy")
+
+    assert '"what is my leave policy"' in report
+    assert "2 transcripts in the file" in report
+    assert "I couldn't verify your country." in report
