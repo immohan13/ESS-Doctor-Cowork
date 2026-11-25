@@ -47,6 +47,33 @@ def _dedupe_refs(text: str) -> str:
     return re.sub(r"\n{3,}", "\n\n", "\n".join(out)).strip()
 
 
+_FRIENDLY = {"ESS_UserContext_Country_Code": "country (ESS_UserContext_Country_Code)",
+             "ESS_UserContext_Level": "job level (ESS_UserContext_Level)",
+             "ESS_UserContext_TimeZoneOffset": "time zone (ESS_UserContext_TimeZoneOffset)",
+             "ESS_UserContext_Is_Manager": "manager flag (ESS_UserContext_Is_Manager)",
+             "ESS_UserContext_Company_Code": "company (ESS_UserContext_Company_Code)"}
+
+
+def bot_findings(bot_yaml: str) -> dict:
+    """Configuration gaps in a snapshot's botContent.yml: user-context topics with no steps, and the
+    ``Global.ESS_UserContext_*`` variables the instructions depend on."""
+    empty = []
+    comps = re.split(r"\n  - kind: ", bot_yaml or "")
+    for comp in comps:
+        if not comp.startswith("DialogComponent"):
+            continue
+        name = re.search(r"\n\s*displayName:\s*\"?(.+?)\"?\s*\n", comp)
+        schema = re.search(r"\n\s*schemaName:\s*(\S+)", comp)
+        label = (name.group(1) if name else "") + " " + (schema.group(1) if schema else "")
+        if re.search(r"user\s*context|usercontext", label, re.I) and re.search(r"setup|set\s*user|setusercontext", label, re.I) \
+                and "beginDialog:" in comp and not re.search(r"\n\s*actions:", comp):
+            empty.append(name.group(1) if name else schema.group(1))
+    gpt = next((c for c in comps if c.startswith("GptComponent")), "")
+    instr = gpt[gpt.find("instructions:"):] if "instructions:" in gpt else ""
+    used = sorted(set(re.findall(r"Global\.(ESS_UserContext_\w+)", instr)))
+    return {"empty_context_topics": empty, "context_vars": used}
+
+
 def _activities_of(doc) -> list[dict]:
     if isinstance(doc, dict) and isinstance(doc.get("activities"), list):
         return doc["activities"]
@@ -427,7 +454,8 @@ _LABEL = {"sessionOutcome": "Session outcome", "turns": "Turns", "activities": "
           "planned": "Planned", "topics": "Topics", "failedSteps": "Failed steps", "knowledgeSearches": "Knowledge searches"}
 
 
-def build(text: str, *, question: str = "", response: str = "", current=None, snapshot: bool = False) -> str:
+def build(text: str, *, question: str = "", response: str = "", current=None, snapshot: bool = False,
+          bot_yaml: str = "") -> str:
     docs = load(text)
     if not docs:
         raise ValueError("No Copilot Studio transcript found.")
@@ -444,6 +472,27 @@ def build(text: str, *, question: str = "", response: str = "", current=None, sn
                  "the answer step's content moderation stopped it.")
     if check and check["followed"] is False:
         cause = "The instructions say to decline this question, but the agent answered it."
+    happened = list(d["happened"])
+    steps = list(d["next_steps"])
+    bf = bot_findings(bot_yaml)
+    if bf["empty_context_topics"]:
+        topic = bf["empty_context_topics"][0]
+        vars_ = ", ".join(_FRIENDLY.get(v, v) for v in bf["context_vars"]) or "the user context variables"
+        happened.append(f'The "{topic}" topic has no steps, so the employee\'s details ({vars_}) were never filled in.')
+        if bf["context_vars"]:
+            happened.append("The instructions use those variables (for example to add country and job level to searches), "
+                            "so they ran with blank values.")
+        if "employee's own profile" in cause or "couldn't verify" in cause:
+            cause = (f'The employee\'s details never loaded: the "{topic}" topic has no steps, so country and job level were '
+                     "blank. The searches worked, but the agent then looked for the employee's profile in the knowledge "
+                     "documents, couldn't find it and answered generically.")
+            steps = [s for s in steps if not s.startswith("Give the agent the employee's profile")]
+        steps.insert(0, f'Set up the "{topic}" topic so it fills in {vars_} from the HR system (Workday, SuccessFactors, '
+                        "ServiceNow) or Microsoft Entra ID.")
+        if bf["context_vars"]:
+            steps.insert(1, "Add an instruction for when a profile value is blank: never search the knowledge sources for "
+                            "the employee's own record; ask the employee for the missing detail (for example country), or "
+                            "give the base policy and list the variations.")
     keys = ["planner", "search", "synthesis", "render"]
     first = next((k for k in keys if st.get(k) == FAILED), None)
 
@@ -453,7 +502,7 @@ def build(text: str, *, question: str = "", response: str = "", current=None, sn
          f"Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}"]
     L += _section("User question"); L.append(f'"{q}"' if q else "Not in the transcript.")
     L += _section("Agent response"); L.append(resp or "No agent message in the transcript.")
-    L += _section("What happened"); L.append(cause); L += [f"- {h}" for h in d["happened"]]
+    L += _section("What happened"); L.append(cause); L += [f"- {h}" for h in happened]
     L += _section("Where it went wrong")
     for i, k in enumerate(keys):
         v = st.get(k, UNKNOWN)
@@ -480,12 +529,13 @@ def build(text: str, *, question: str = "", response: str = "", current=None, sn
     L += _section("3 Synthesis & safety")
     L.append("Answer states and content moderation results appear above when the transcript records them.")
     L += _section("Recommended next steps")
-    steps = list(d["next_steps"]) or ["Compare the answer with the topics and knowledge that ran; the instructions shape the final answer."]
+    steps = steps or ["Compare the answer with the topics and knowledge that ran; the instructions shape the final answer."]
     if current is None:
         steps.append("Add the agent's instructions to check which instruction line applies.")
     L += [f"{i}. {s}" for i, s in enumerate(steps, 1)]
     L += _section("What this transcript can't see")
-    L.append("- Text of answers grounded on SharePoint knowledge, which transcripts store as REDACTED.")
+    if not snapshot:
+        L.append("- Text of answers grounded on SharePoint knowledge, which transcripts store as REDACTED.")
     L.append("- Microsoft 365 Copilot's own steps for the same conversation (the handoff and its safety checks); a DevUI export shows those.")
     if not snapshot:
         L.append("- Transcripts are saved about 30 minutes after the conversation goes idle, and reading them needs the Bot Transcript Viewer role.")

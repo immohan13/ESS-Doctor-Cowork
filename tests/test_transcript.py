@@ -144,6 +144,28 @@ def test_snapshot_string_roles_pii_query_and_profile_hedge():
     assert any("name or email" in s for s in d["happened"])
 
 
+def test_snapshot_bot_content_flags_empty_user_context_setup_topic():
+    bot = ("kind: BotDefinition\ncomponents:\n"
+           "  - kind: GptComponent\n    instructions: |-\n      'Country': {Global.ESS_UserContext_Country_Code}\n"
+           "  - kind: DialogComponent\n    displayName: \"[Admin] - User Context - Setup\"\n"
+           "    schemaName: contoso.topic.Setusercontext\n    dialog:\n      beginDialog:\n        kind: OnRedirect\n        id: main\n"
+           "  - kind: DialogComponent\n    displayName: Greeting\n    dialog:\n      beginDialog:\n        kind: OnRecognizedIntent\n"
+           "        actions:\n          - kind: SendActivity\n")
+    acts = [
+        {"type": "message", "from": {"role": "user"}, "text": "what is my leave policy"},
+        {"type": "event", "valueType": "DynamicPlanStepBindUpdate",
+         "value": {"taskDialogId": "P:UniversalSearchTool", "arguments": {"search_query": "employee profile country and job level"}}},
+        {"type": "message", "from": {"role": "bot"}, "text": "I couldn't verify your country from your employee record."},
+    ]
+
+    report = transcript.build(json.dumps({"activities": acts}), snapshot=True, bot_yaml=bot)
+
+    assert transcript.bot_findings(bot) == {"empty_context_topics": ["[Admin] - User Context - Setup"],
+                                            "context_vars": ["ESS_UserContext_Country_Code"]}
+    assert "The employee's details never loaded" in report
+    assert '1. Set up the "[Admin] - User Context - Setup" topic' in report
+
+
 def test_devui_custom_engine_turn_is_not_reported_as_ungrounded():
     export = {
         "conversationId": "c-1",

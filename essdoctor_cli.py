@@ -373,7 +373,8 @@ def cmd_xray(a) -> str:
             _from_text(bot_yaml, "Instructions in the snapshot", "snapshot") if bot_yaml else None)
         if not transcript.load(dialog):
             raise InputError("The snapshot's dialog.json has no conversation activities.")
-        return "```text\n" + transcript.build(dialog, question=a.question, response=a.response, current=current, snapshot=True) + "\n```"
+        return "```text\n" + transcript.build(dialog, question=a.question, response=a.response, current=current, snapshot=True,
+                                             bot_yaml=bot_yaml) + "\n```"
     text = _text(data).lstrip("\ufeff")
     current = load_agent(a.instructions, "Current instructions") if a.instructions else None
     stripped = text.lstrip()
