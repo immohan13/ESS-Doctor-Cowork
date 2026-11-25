@@ -364,7 +364,7 @@ def check(doc, force: bool = False) -> tuple[list, dict]:
         gaps.append(Finding(
             rid, severity, "Best practice", _STAGE[p.stage], f"Not following: {p.title}",
             [], "(not in the instructions)",
-            f"{p.guidance} Seen in: {p.seen_in}.",
+            p.guidance + (f" Seen in: {p.seen_in}." if p.seen_in else ""),
             f"Add under '{section.replace('toolcall', 'tool call')}': {sentence}",
             [], "", "practice", origin="practice",
         ))

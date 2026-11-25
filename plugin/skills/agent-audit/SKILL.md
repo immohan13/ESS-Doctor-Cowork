@@ -52,6 +52,8 @@ Across the agents:
 | More than about 30K characters of instructions across the agent and its topic prompts | Hard to maintain as policies and models change, slower, and less consistent; keep the safeguards and move the rest into an evaluation set |
 | Topic conditions with 20 or more literal codes | Every change means editing each topic and copies drift; keep the list in an environment variable |
 
+The checks are ESS field guidance, not Copilot Studio product documentation; settings changes should still be tested with the evaluation set.
+
 Each agent's instructions also go through the instruction check against its ESS template (HR, IT or hub).
 
 When the maker says the agent is slow, ask for an export of each environment they compare (for example QA and production) and, if they have one, a test pane snapshot or transcript of a slow question: the X-ray reports the question-to-answer time, the number of knowledge searches in that turn and the session start time. Recommend measuring latency and answer quality separately with the same users and questions; a faster answer isn't always as complete.

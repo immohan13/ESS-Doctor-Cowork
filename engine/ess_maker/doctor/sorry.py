@@ -78,7 +78,7 @@ CAUSES = {c.id: c for c in [
           "behind each sorry.", ()),
     Cause("unknown", "Not enough evidence", "Collect more evidence",
           "Collect a developer mode card for the question (Raw info JSON) with the question, the agent's answer and the "
-          "instructions; with Microsoft support, a DevUI export also shows the instructions that ran and the search funnel.",
+          "instructions; a conversation export from Microsoft support also shows the instructions that ran and the search funnel.",
           ()),
 ]}
 
@@ -116,7 +116,7 @@ def _devui_items(parsed: dict, name: str, seen: dict) -> list[Item]:
                 it.cause, it.detail = "action-failed", f"handoff to {cea.get('schema') or 'Copilot Studio'} failed ({cea['calls']} call(s))"
             else:
                 it.cause = "cea-inside"
-                it.detail = f"{cea.get('schema') or 'Copilot Studio agent'} answered; planning and search aren't in the DevUI export"
+                it.detail = f"{cea.get('schema') or 'Copilot Studio agent'} answered; planning and search aren't in the support conversation export"
             continue
         served = from_instructions(t["instructions"], "served", "devui") if t["instructions"] else None
         check = instruction_check(t["question"], resp, served)
@@ -292,7 +292,7 @@ def build(result: dict) -> str:
     L.append(f"{result['turns']} turn(s) analyzed; {n} ended in a sorry, an error or no answer"
              + (f" ({n * 100 // max(1, result['turns'])}%)." if result["turns"] else "."))
     if not n:
-        L += ["", "No sorry answers in this evidence. Upload developer mode cards (or DevUI exports, with Microsoft support) "
+        L += ["", "No sorry answers in this evidence. Upload developer mode cards (or conversation exports from Microsoft support) "
                   "of conversations where the agent apologized or gave no answer."]
         return "\n".join(L)
     L += ["", "### Causes, biggest first", "", "| Cause | Turns | Share | Who fixes it | Fix |", "| --- | --- | --- | --- | --- |"]

@@ -1,7 +1,7 @@
 ```text
 Conversation Investigation (developer mode card) — conversation ID not shown
 Source: Microsoft 365 Copilot developer mode debug card, agent instructions
-Generated: 2026-11-25 22:36 UTC
+Generated: 2026-11-25 22:46 UTC
 
 ==============================================================
 USER QUESTION
@@ -67,7 +67,7 @@ RECOMMENDED NEXT STEPS
 1. Rewrite the description of the topic or action that should handle this so it uses the words users ask with (for example “How many vacation days do I have left?”).
 2. Check the instructions don't steer this kind of question away from tools.
 3. If this used to work, ask again later: 'No functions selected' after earlier success can mean throttling.
-4. If Microsoft support is helping you, a DevUI export of the same conversation adds the instructions that ran, the search queries, every model call and the safety checks.
+4. If Microsoft support is helping you, a conversation export of the same conversation from Microsoft support adds the instructions that ran, the search queries, every model call and the safety checks.
 
 ==============================================================
 WHAT THIS CARD CAN'T SEE
@@ -78,4 +78,4 @@ WHAT THIS CARD CAN'T SEE
 - Steps inside Copilot Studio topics or flows after the action was called.
 ```
 
-<!-- essdoctor: version=2.11.4 skill=conversation-xray command=xray -->
+<!-- essdoctor: version=2.11.5 skill=conversation-xray command=xray -->

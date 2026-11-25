@@ -753,7 +753,7 @@ def test_plan_identifies_each_file_and_routes_to_plugin_skills():
                                        "samples/inputs/conversationHistory-contoso-parental.json", "--ask", "fix all"]) == 0
     md = out.getvalue()
     assert "Monitor > Sessions download | CEA | transcript-xray" in md
-    assert "Developer mode card | DA | conversation-xray" in md and "DevUI conversation export" in md
+    assert "Developer mode card | DA | conversation-xray" in md and "Conversation export from Microsoft support" in md
     assert "fix" in md and "--rules all" in md and "both a declarative agent and a custom engine agent" in md
 
 
@@ -941,3 +941,12 @@ def test_sessions_xray_places_the_blank_details_rule_and_fix_adds_it():
             os.chdir(cwd)
     assert "### Also added: employee context rule" in out.getvalue() and "If one is blank" in fixed
     assert "Add country or role to a search" not in fixed  # the job-level fix already covers it
+
+def test_every_rule_and_audit_check_is_in_the_catalog():
+    from pathlib import Path
+    from ess_maker.doctor.catalog import AUDIT_CHECKS, INSTRUCTION_RULES
+
+    root = Path(__file__).resolve().parent.parent / "engine" / "ess_maker" / "doctor"
+    rules = set(re.findall(r'"(L\d+-[A-Z0-9]+(?:-[A-Z0-9]+)*)"', (root / "rules.py").read_text(encoding="utf-8")))
+    checks = set(re.findall(r'Gap\("(A\d+-[A-Z0-9-]+)"', (root / "audit.py").read_text(encoding="utf-8")))
+    assert rules - set(INSTRUCTION_RULES) == set() and checks - set(AUDIT_CHECKS) == set()

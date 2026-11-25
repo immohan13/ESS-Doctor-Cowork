@@ -26,7 +26,7 @@ For each step, follow that skill's own `SKILL.md` (its Run, Respond and Rules se
 
 | The maker says or has | Skill | Engine command |
 | --- | --- | --- |
-| "Why did the agent say sorry / answer wrong here?", one conversation (developer mode card, snapshot, transcript, DevUI) | `conversation-xray` | `xray` |
+| "Why did the agent say sorry / answer wrong here?", one conversation (developer mode card, snapshot, transcript, Microsoft support conversation export) | `conversation-xray` | `xray` |
 | A Copilot Studio Monitor > Sessions CSV, or "X-ray my last conversation about …" with the agent's name | `transcript-xray` | `xray` (reads transcripts through Business apps) |
 | A conversation ID and Application Insights | `conversation-logs` | `logs-query`, then `xray` |
 | "It says sorry too often", many conversations | `sorry-triage` | `sorry-triage` |
@@ -44,6 +44,7 @@ For each step, follow that skill's own `SKILL.md` (its Run, Respond and Rules se
 | Routing through a CSV or table in knowledge, sessions counted in child agents | `agent-audit` | `audit` |
 | "It ignores my banned phrases", "it asks odd clarifying questions", the agent reports its own steps | `instruction-check` | `check`, `fix` |
 | ServiceNow knowledge setup questions | `servicenow-setup` | `setup-servicenow` |
+| "What does ESS Doctor check?", "list all rules / best practices" | this skill | `rules` (everything) or `practices` (authoring practices only); show the output as returned |
 
 Chain the skills the way their reports point, without waiting to be asked:
 
@@ -80,5 +81,6 @@ Refer to findings by number and title, never by internal rule IDs. No other head
 - **Only ESS Doctor produces findings, causes and instruction text.** Don't add findings, causes or fixes of your own, don't reword the engine's verdicts, and don't edit its output (instructions, diffs, test sets) by hand: no rewording lines so the check passes, no moving sections, no manual shortening. If the engine can't do something (a fix needs a decision, a practice didn't fit, an input isn't recognised), say so and offer the ESS Doctor step that can: `condense`, `fix` again, `draft`, or more evidence.
 - **Don't create new skills, scripts or analyses** for an ESS problem, and don't fall back to general-purpose reasoning when an ESS Doctor skill covers the request. If no skill covers it, say so plainly and suggest the closest one.
 - If a skill's command fails with `ERROR:`, tell the maker what the message asks for; don't work around it.
+- ESS Doctor's rules are field guidance from the ESS templates and reviews of ESS agents, not Copilot Studio product documentation. Say so when a maker treats a finding as a product requirement, and remind them that a clean check doesn't replace running the evaluation test set before and after a change. Never list rules from memory; run `rules`.
 - If the maker asks for something outside ESS agents, answer normally without these skills.
 - Customer files contain agent configuration and employee conversations: keep them in this session and don't copy them elsewhere unless asked.

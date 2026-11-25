@@ -353,7 +353,7 @@ def build(trace: dict, *, question: str = "", agent=None, findings: list | None 
     gaps = ["Prompt and response text (not logged in runtime telemetry)" + ("; the response here was pasted by the maker." if response else ".")]
     if bot.get("channel") == "m365copilot":
         gaps.append("Declarative agent orchestration (planner choice, search query, knowledge results, final answer) runs in "
-                    "the M365 Copilot orchestrator; use DevUI from /debug or M365 Copilot telemetry for that layer.")
+                    "the M365 Copilot orchestrator; a conversation export from Microsoft support covers that layer.")
     if not trace.get("published_versions") or trace.get("published_versions") == ["null"]:
         gaps.append("Agent version wasn't reported; confirm which instruction version served this conversation.")
     L += [f"  - {g}" for g in gaps]

@@ -31,14 +31,14 @@ Upload the files together or as one `.zip` (zips of zips are fine). First find o
    Response: <what the agent replied>
    ```
 
-2. **DevUI conversation exports** (Microsoft support only): `conversationHistory-<id>.json` from DevUI; every turn in the export is checked. Only suggest DevUI when the maker says Microsoft support or the ESS team is helping.
+2. **Conversation exports from Microsoft support**: `conversationHistory-<id>.json`, shared by Microsoft support when they're helping; every turn in the export is checked. Only suggest them when the maker says Microsoft support or the ESS team is helping.
 
 Also ask for the agent's **current instructions** so the report can name the rules behind the declines (a snapshot already contains them). If the **Business apps (preview)** plugin is connected, read them from Copilot Studio instead of asking the maker to copy them (follow "Read the agent from Copilot Studio" in the `instruction-check` skill) and pass the saved component file with `--instructions`. 10–30 conversations give a reliable picture; a few are enough to start.
 
 ## Run
 
 ```bash
-python3 scripts/essdoctor.py sorry-triage inputs/*.json inputs/*.txt --instructions inputs/current.txt   # developer mode cards, DevUI
+python3 scripts/essdoctor.py sorry-triage inputs/*.json inputs/*.txt --instructions inputs/current.txt   # developer mode cards, support conversation exports
 python3 scripts/essdoctor.py sorry-triage inputs/evidence.zip --instructions inputs/current.txt
 python3 scripts/essdoctor.py sorry-triage inputs/sessions.csv inputs/transcripts.json inputs/*.zip     # custom engine agent: sessions, transcripts, snapshots
 python3 scripts/essdoctor.py sorry-triage inputs/appinsights.csv                                       # Application Insights export

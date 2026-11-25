@@ -25,7 +25,7 @@ If the **Business apps (preview)** plugin is installed and connected, read the i
    - `SELECT botcomponentid, data, modifiedon FROM botcomponent WHERE parentbotid = '<botid>' AND componenttype = 15 AND statecode = 0` (the instructions; if there are several, use the most recently modified)
    - Optional context: `SELECT name, componenttype FROM botcomponent WHERE parentbotid = '<botid>' AND componenttype IN (9, 16)` (topics and knowledge sources)
 3. Save the `data` value exactly as returned to `inputs/current.yml` and pass that file to the engine. It reads the instructions block and numbers lines the way Copilot Studio shows them. Keep the `botcomponentid` for writing a fix back.
-4. These are the saved (draft) instructions, which the next Publish ships. If the maker is investigating a conversation, the instructions that ran may differ; a DevUI export shows those.
+4. These are the saved (draft) instructions, which the next Publish ships. If the maker is investigating a conversation, the instructions that ran may differ; a conversation export from Microsoft support shows those.
 5. If the environment isn't found, the connection can't reach it (another tenant, no access, or not in the list the connector returns). If the agent isn't in the `bot` table, it's most likely stored in Copilot Studio's newer backend (its URL contains `agentBackend=cosmos`), which the connector can't read. In both cases say so and ask the maker to paste the instructions instead.
 
 If the plugin isn't installed, ask the maker to paste the instructions, and mention they can skip copying next time: **Plugins > search "Business apps" > Install > Connect** (one-time sign-in, no admin setup).
@@ -50,6 +50,8 @@ python3 scripts/essdoctor.py practices
 ## Respond
 
 The check also catches patterns found while tuning customer agents: employee context used to build search queries (rather than to tailor the answer), search queries rewritten with device, OS or profile details, a tool order required in prose, grounding rules that also block figures the sources state, lists of banned phrases or words instead of a behavior rule, clarifying questions with made-up options, and asking the agent to report its own steps. Treat them like any other finding: show them as numbered, and fix them with `fix`.
+
+The rules and practices are ESS field guidance, not Copilot Studio product documentation: a clean check doesn't replace the evaluation test set.
 
 When the maker keeps adding rules to fix individual answers, suggest the evaluation loop instead: keep the essential safeguards in the instructions, put the behaviors they want in the evaluation test set, run it, fix only the rules behind the failures and re-run. A high pass rate on a small set isn't sign-off; check the failed questions and a sample of passes.
 

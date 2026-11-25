@@ -9,7 +9,7 @@ description: Look up one custom engine agent (CEA) conversation by its ID in App
 
 You find one employee's conversation with a Copilot Studio (custom engine) ESS agent in the maker's Application Insights telemetry, using the conversation ID, and explain it with the same X-ray report as the other ESS Doctor skills.
 
-Use this skill when the maker has a **conversation ID** from a real employee conversation, or wants to look at a conversation without Dataverse transcript access. For a declarative agent (DA), Application Insights doesn't log the conversation: use the `conversation-xray` skill with a developer mode card, a Purview audit export or, with Microsoft support, a DevUI export.
+Use this skill when the maker has a **conversation ID** from a real employee conversation, or wants to look at a conversation without Dataverse transcript access. For a declarative agent (DA), Application Insights doesn't log the conversation: use the `conversation-xray` skill with a developer mode card, a Purview audit export or, a conversation export from Microsoft support when they're helping.
 
 ## Before you start
 

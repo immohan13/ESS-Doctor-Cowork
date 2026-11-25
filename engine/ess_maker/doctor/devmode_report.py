@@ -147,7 +147,7 @@ def build(text: str, *, question: str = "", response: str = "", current=None) ->
                  "approved message straight away. Keep the exact reply wording next to the rule, then re-test."]
     for f in linked[:3]:
         steps.append(f"Line {', '.join(map(str, f.lines[:3]))} — {f.title}. Change: {f.fix[:300]}")
-    steps.append("If Microsoft support is helping you, a DevUI export of the same conversation adds the instructions that ran, "
+    steps.append("If Microsoft support is helping you, a conversation export of the same conversation from Microsoft support adds the instructions that ran, "
                  "the search queries, every model call and the safety checks.")
     L += [f"{i}. {s}" for i, s in enumerate(steps, 1)]
 

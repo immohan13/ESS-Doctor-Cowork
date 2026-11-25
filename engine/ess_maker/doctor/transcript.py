@@ -722,7 +722,7 @@ def build(text: str, *, question: str = "", response: str = "", current=None, sn
         L.append("- Topic and instruction setup, such as an empty user context topic; a test pane snapshot shows those.")
         L.append("- Message text and tool arguments and results unless the telemetry settings log them (agent-level: Log "
                  "conversation details; environment-level spans include them by default).")
-    L.append("- Microsoft 365 Copilot's own steps for the same conversation (the handoff and its safety checks); a DevUI export shows those.")
+    L.append("- Microsoft 365 Copilot's own steps for the same conversation (the handoff and its safety checks); a conversation export from Microsoft support shows those.")
     if kind == "transcript":
         L.append("- Transcripts are saved about 30 minutes after the conversation goes idle, and reading them needs the Bot Transcript Viewer role.")
     return "\n".join(L)

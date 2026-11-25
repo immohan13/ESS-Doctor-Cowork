@@ -86,3 +86,11 @@ Limits: the connector only reaches environments it lists for the signed-in user;
 - `SKILL.md` descriptions are at most 1,024 characters.
 - The engine makes no network calls and never changes an agent. Makers apply the recommended fixes in Copilot Studio.
 - Conversation exports contain employee questions and identifiers. Keep them out of this repo; `.gitignore` blocks the common file names.
+
+## What makers can see
+
+Everything in the plugin is readable by anyone it's shared with: the skills in Cowork, and the engine (its rules, practices, templates and patterns) once decoded from `scripts/essdoctor.py`. Treat the plugin as published content.
+
+- The rules are ESS field guidance from the ESS templates and reviews of ESS agents, not Copilot Studio product documentation. `essdoctor.py rules` lists everything that's checked, with that note.
+- No customer names, people, internal URLs or tenant IDs are in the plugin; a test fails if a customer name appears in the shipped text.
+- `practices.py` keeps where each practice was seen (anonymized deployments and line numbers) for maintainers; `build.py` strips that from the shipped engine and fails if any reference is left.

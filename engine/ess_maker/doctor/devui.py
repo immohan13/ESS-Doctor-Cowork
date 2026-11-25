@@ -321,8 +321,8 @@ def _build_cea(parsed: dict, t: dict, current=None) -> str:
         why = (f"{agent} answered" + (f", citing {len(sources)} source(s)" if sources else " without citing a source") +
                ". No failure is visible in the handoff.")
 
-    L = [f"Conversation Investigation (DevUI trace, custom engine agent) — {parsed['conversation_id']}",
-         "Source: Copilot DevUI conversation export (Microsoft 365 Copilot handoff to a Copilot Studio agent)"
+    L = [f"Conversation Investigation (Microsoft support conversation export, custom engine agent) — {parsed['conversation_id']}",
+         "Source: Microsoft support conversation export (Microsoft 365 Copilot handoff to a Copilot Studio agent)"
          + (", current agent instructions" if current is not None else ""),
          f"Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}"]
     L += _section("User question"); L.append(f'"{q}"')
@@ -425,8 +425,8 @@ def build(parsed: dict, turn_index: int = 0, *, current=None, findings: list | N
     stage["4"] = "ok" if resp else "no answer"
 
     L: list[str] = []
-    L.append(f"Conversation Investigation (DevUI trace) — {parsed['conversation_id']}")
-    L.append("Source: Copilot DevUI conversation export (M365 Copilot orchestrator telemetry)"
+    L.append(f"Conversation Investigation (Microsoft support conversation export) — {parsed['conversation_id']}")
+    L.append("Source: Microsoft support conversation export (M365 Copilot orchestrator telemetry)"
              + (", current agent instructions" if current is not None else ""))
     L.append(f"Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}")
 

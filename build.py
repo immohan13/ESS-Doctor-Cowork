@@ -22,7 +22,7 @@ DIST = HERE / "dist"
 PLUGIN_SRC = HERE / "plugin"
 
 # Engine modules (standard library only); the plugin works on files the maker uploads.
-ENGINE = ["agent_file", "appinsights", "audit", "blocks", "condense", "devmode", "devmode_report", "devui", "drafter", "evalset",
+ENGINE = ["agent_file", "appinsights", "audit", "blocks", "catalog", "condense", "devmode", "devmode_report", "devui", "drafter", "evalset",
           "evaltriage", "evidence", "fixes", "known_issues", "practices", "report", "rules", "setup_servicenow", "sorry",
           "transcript"]
 
@@ -41,6 +41,20 @@ settings = _Settings()
 '''
 
 
+_PROVENANCE = re.compile(r'"[^"\n]*\bCustomer [A-Z]\b[^"\n]*"')
+
+
+def _strip_provenance(text: str) -> str:
+    """Shipped practices keep their guidance but not where they were seen (reviewed deployments and line numbers)."""
+    head = text.index('"""', 3) + 3
+    text = ('"""Instruction-authoring practices for ESS agents (field guidance from ESS templates and agent reviews)."""'
+            + text[head:])
+    text = _PROVENANCE.sub('""', text)
+    if re.search(r"\bCustomer [A-Z]\b", text):
+        sys.exit("practices.py still names a reviewed deployment after stripping provenance")
+    return text
+
+
 def build_pyz(out: Path) -> None:
     stage = DIST / "pyz-stage"
     if stage.exists():
@@ -56,7 +70,10 @@ def build_pyz(out: Path) -> None:
         src = SRC / "doctor" / f"{m}.py"
         if not src.exists():
             sys.exit(f"Missing engine module: {src}")
-        shutil.copy(src, pkg / "doctor" / f"{m}.py")
+        text = src.read_text(encoding="utf-8")
+        if m == "practices":
+            text = _strip_provenance(text)
+        (pkg / "doctor" / f"{m}.py").write_text(text, encoding="utf-8", newline="")
     lib = SRC / "doctor" / "condense_library.json"
     if lib.exists():
         shutil.copy(lib, pkg / "doctor" / lib.name)

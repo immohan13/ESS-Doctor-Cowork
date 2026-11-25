@@ -903,7 +903,7 @@ def _xray(a, ctx: dict) -> str:
         if isinstance(obj, dict) and "requests" in obj and "messages" in obj:
             parsed = devui.parse(obj)
             if not parsed["turns"]:
-                raise InputError("The DevUI export has no user turns to analyze (only commands such as /debug).")
+                raise InputError("The conversation export has no user turns to analyze (only commands such as /debug).")
             turns = parsed["turns"]
             idx = len(turns) - 1
             if a.question:
@@ -911,7 +911,7 @@ def _xray(a, ctx: dict) -> str:
             if a.turn:
                 idx = max(0, min(a.turn - 1, len(turns) - 1))
             t = turns[idx]
-            served = from_instructions(t["instructions"], "Instructions that ran (DevUI)", "devui") if t["instructions"] else None
+            served = from_instructions(t["instructions"], "Instructions that ran", "devui") if t["instructions"] else None
             basis = served or current
             findings = validate(basis, baseline(guess_persona(current or basis))) if basis else []
             ctx.update(doc=basis, base=baseline(guess_persona(current or basis)) if basis else None)
@@ -945,7 +945,7 @@ def _xray(a, ctx: dict) -> str:
     if not devmode.looks_like_devmode(text):
         raise InputError("Couldn't recognise this evidence. Paste the developer mode (-developer on) card or its Raw info "
                          "JSON, upload a Purview audit export (CSV with an AuditData column), or, if Microsoft support is "
-                         "helping you, a DevUI conversation export (JSON).")
+                         "helping you, a conversation export (JSON) they shared.")
     hq, hr, _ = devmode.split_header(text)
     return "```text\n" + devmode_report.build(text, question=a.question or hq, response=a.response or hr, current=current) + "\n```"
 
@@ -1172,7 +1172,7 @@ def cmd_sorry(a) -> str:
     if not sources:
         raise InputError("No conversation evidence found. Custom engine agent: upload the Copilot Studio Monitor > Sessions "
                          "download, transcripts, test pane snapshots (.zip) or an Application Insights export. Declarative "
-                         "agent: developer mode cards (text or Raw info JSON) or, with Microsoft support, DevUI exports. "
+                         "agent: developer mode cards (text or Raw info JSON) or conversation exports from Microsoft support. "
                          "One file per conversation or several in a .zip.")
     # A session row and the transcript of the same conversation are one conversation: keep the transcript, which has the cause.
     asked = {re.sub(r"\s+", " ", (p.get("question") or "")).strip().lower() for k, _, p in sources if k == "transcript"}
@@ -1472,11 +1472,43 @@ def cmd_setup(a) -> str:
     return run(answers)["markdown"]
 
 
+_STAGE_NAME = {"Identity": "Role and tone", "1 Planner": "Routing", "2 Search": "Search and grounding",
+               "3 Synthesis": "Answers and hand-offs", "4 Render": "Format and style"}
+
+
+def _grouped(items) -> list[str]:
+    """Bullets under bold group names, in first-seen order: items are (group, text)."""
+    groups: dict[str, list[str]] = {}
+    for g, text in items:
+        groups.setdefault(g, []).append(text)
+    out = []
+    for g, texts in groups.items():
+        out += [f"**{g}**", ""] + [f"- {_cell(x)}" for x in texts] + [""]
+    return out
+
+
 def cmd_practices(a) -> str:
-    md = ["## Authoring practices ESS Doctor checks", ""]
-    for p in practices.PRACTICES:
-        md.append(f"- **{p.id}** {_cell(p.title)}")
-    return "\n".join(md)
+    from ess_maker.doctor.catalog import NOTE
+
+    md = [f"## Authoring practices ESS Doctor checks ({len(practices.PRACTICES)})", "", f"> {NOTE}", ""]
+    md += _grouped((_STAGE_NAME.get(p.stage, p.stage), p.title) for p in practices.PRACTICES)
+    return "\n".join(md).rstrip()
+
+
+def cmd_rules(a) -> str:
+    """Everything ESS Doctor checks: instruction rules, agent audit checks and the authoring practices."""
+    from ess_maker.doctor.catalog import AUDIT_CHECKS, INSTRUCTION_RULES, NOTE
+
+    md = ["## What ESS Doctor checks", "", f"> {NOTE}", "",
+          f"### Instruction rules ({len(INSTRUCTION_RULES)})", "",
+          "The instruction check compares the instructions with the ESS template (HR, IT or hub) and flags:", ""]
+    md += _grouped(INSTRUCTION_RULES.values())
+    md += [f"### Agent audit checks ({len(AUDIT_CHECKS)})", "",
+           "The agent audit checks a hub and its child agents together:", ""]
+    md += _grouped(AUDIT_CHECKS.values())
+    md += [f"### Authoring practices ({len(practices.PRACTICES)})", ""]
+    md += _grouped((_STAGE_NAME.get(p.stage, p.stage), p.title) for p in practices.PRACTICES)
+    return "\n".join(md).rstrip()
 
 
 def cmd_component_update(a) -> str:
@@ -1510,7 +1542,8 @@ def cmd_component_update(a) -> str:
 
 _SKILL_OF = {"check": "instruction-check", "fix": "instruction-check", "condense": "instruction-check",
              "draft": "instruction-draft", "xray": "conversation-xray", "sorry-triage": "sorry-triage",
-             "eval-triage": "eval-triage", "eval-compare": "eval-triage", "audit": "agent-audit", "plan": "ess-doctor"}
+             "eval-triage": "eval-triage", "eval-compare": "eval-triage", "audit": "agent-audit", "plan": "ess-doctor",
+             "rules": "ess-doctor", "practices": "ess-doctor"}
 
 
 def _identify(name: str, data: bytes) -> tuple[str, str, str]:
@@ -1543,7 +1576,7 @@ def _identify(name: str, data: bytes) -> tuple[str, str, str]:
         except ValueError:
             obj = None
         if isinstance(obj, dict) and "requests" in obj and "messages" in obj:
-            return "DevUI conversation export (Microsoft support)", "da", "devui"
+            return "Conversation export from Microsoft support", "da", "devui"
         if transcript.load(text):
             return "Copilot Studio conversation transcript", "cea", "transcript"
     if transcript.load_sessions(text):
@@ -1766,6 +1799,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("files", nargs="+")
     p.add_argument("--ask", default="", help="What the maker asked, to pick between check, fix, shorten and draft")
     p.set_defaults(fn=cmd_plan)
+
+    p = sub.add_parser("rules", help="List everything ESS Doctor checks: instruction rules, audit checks, practices")
+    p.set_defaults(fn=cmd_rules)
 
     p = sub.add_parser("practices", help="List the authoring practices that are checked")
     p.set_defaults(fn=cmd_practices)
