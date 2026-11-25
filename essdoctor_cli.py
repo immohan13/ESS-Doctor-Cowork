@@ -1601,7 +1601,8 @@ def main(argv: list[str] | None = None) -> int:
         out = a.fn(a)
         print(out)
         if a.cmd in _SKILL_OF and out.lstrip().startswith(("#", "```")):
-            print(f"\n<sub>ESS Doctor {_version()} · {_SKILL_OF[a.cmd]} skill · `{a.cmd}`</sub>")
+            # Hidden when rendered; the skills collect these into one "Produced by" section at the end of the reply.
+            print(f"\n<!-- essdoctor: version={_version()} skill={_SKILL_OF[a.cmd]} command={a.cmd} -->")
         return 0
     except InputError as e:
         print(f"ERROR: {e}", file=sys.stderr)

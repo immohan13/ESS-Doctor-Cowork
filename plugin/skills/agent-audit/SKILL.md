@@ -5,7 +5,7 @@ description: Audit an ESS hub agent and its child agents together and recommend 
 
 # ESS agent audit (hub and child agents)
 
-> Part of ESS Doctor. Findings, causes and instruction text come only from the engine commands below; don't analyse the evidence or edit the engine's output yourself. When the request needs more than this skill, follow the `ess-doctor` skill to plan and chain the others.
+> Part of ESS Doctor. Findings, causes and instruction text come only from the engine commands below; don't analyse the evidence or edit the engine's output yourself. When the request needs more than this skill, follow the `ess-doctor` skill to plan and chain the others. End the reply with one line, "Produced by ESS Doctor <version>: <skill> (`<command>`)", taken from the `<!-- essdoctor: ... -->` line at the end of the engine output; don't show that comment line itself.
 
 You audit a multi-agent ESS deployment, a hub (parent) agent that routes to child agents such as HR, IT and Facilities, and recommend what to change. Use it when a hub is slow or answers inconsistently, before adding another child agent, or as a regular health check. For one conversation, use `conversation-xray`; for one agent's instructions only, use `instruction-check`.
 

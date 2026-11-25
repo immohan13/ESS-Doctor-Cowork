@@ -50,15 +50,15 @@ Chain the skills the way their reports point, without waiting to be asked:
 
 When you ran more than one skill, the reply has this shape and nothing more. The per-skill Respond sections apply only when the maker invoked that skill on its own.
 
-1. **One line** naming the skills you ran, for example _"Ran: transcript-xray → sorry-triage → instruction-draft"_.
-2. **Summary**: at most four bullets, one per cause, merged across the reports (the same cause from two reports is one bullet). Each bullet says what's wrong, for which questions, and who fixes it.
-3. **The main report, in full**: only the one that answers the maker's question (the Sessions X-ray for a sessions file, the conversation X-ray for one conversation, or the check report for an instructions request). Show it exactly as its skill says: an X-ray goes in one `text` block line for line, with its `====` rules and every section; Markdown reports as Markdown with their tables and `diff` blocks. Never show a shortened or partial report.
-4. **Other reports, one line each**: its key result and the version line, for example _"Sorry triage: 3 of 3 sorries are maker-fixable (2 no match, 1 missing employee details) · ESS Doctor 2.9.1 · sorry-triage"_. End with "Ask for any of these to see the full report."
-5. **Changes to make**, only if a step changed the instructions: the change's `diff` blocks as returned; then the changes made in Copilot Studio rather than in the instructions (topics, knowledge sources, settings), as a short list.
-6. **Final instructions**, only if a step changed the instructions: print the final file (`cat`) and show its full content, unchanged, in one fenced `text` code block, so the maker copies it with the code block's **Copy** button. Never tell the maker to open the `.txt` file instead: a file preview renders it as Markdown and drops numbering and blank lines. Under it, one line: paste it in Copilot Studio > **Overview > Instructions > Edit** (select all, paste), save, **Publish**, test in a new chat.
-7. **Test and next step**: share `outputs/evalset.csv` with the four import steps on one line each, then one question offering the next step.
+1. **Summary**: at most four bullets, one per cause, merged across the reports (the same cause from two reports is one bullet). Each bullet says what's wrong, for which questions, and who fixes it.
+2. **The main report, in full**: only the one that answers the maker's question (the Sessions X-ray for a sessions file, the conversation X-ray for one conversation, or the check report for an instructions request). Show it exactly as its skill says: an X-ray goes in one `text` block line for line, with its `====` rules and every section; Markdown reports as Markdown with their tables and `diff` blocks. Never show a shortened or partial report.
+3. **Other reports, one line each**: its key result, for example _"Sorry triage: 3 of 3 sorries are maker-fixable (2 no match, 1 missing employee details)."_ End with "Ask for any of these to see the full report."
+4. **Changes to make**, only if a step changed the instructions: the change's `diff` blocks as returned; then the changes made in Copilot Studio rather than in the instructions (topics, knowledge sources, settings), as a short list.
+5. **Final instructions**, only if a step changed the instructions: print the final file (`cat`) and show its full content, unchanged, in one fenced `text` code block, so the maker copies it with the code block's **Copy** button. Never tell the maker to open the `.txt` file instead: a file preview renders it as Markdown and drops numbering and blank lines. Under it, one line: paste it in Copilot Studio > **Overview > Instructions > Edit** (select all, paste), save, **Publish**, test in a new chat.
+6. **Test and next step**: share `outputs/evalset.csv` with the four import steps on one line each, then one question offering the next step.
+7. **Produced by** (always last, also for a single skill): one short line, for example _"Produced by ESS Doctor 2.9.2: transcript-xray (`xray`) → sorry-triage → instruction-draft (`draft`)."_ Take the version, skills and commands from the `<!-- essdoctor: … -->` line at the end of each engine output, in the order you ran them. Don't show those comment lines themselves anywhere else in the reply.
 
-Refer to findings by number and title, never by internal rule IDs. No headings beyond "Changes to make" and "Final instructions".
+Refer to findings by number and title, never by internal rule IDs. No headings beyond "Changes to make", "Final instructions" and "Produced by".
 
 ## Rules
 

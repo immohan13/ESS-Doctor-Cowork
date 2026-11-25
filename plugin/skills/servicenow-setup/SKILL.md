@@ -5,7 +5,7 @@ description: Check the ServiceNow Knowledge connector setup for an ESS agent and
 
 # ServiceNow Knowledge setup check
 
-> Part of ESS Doctor. Findings, causes and instruction text come only from the engine commands below; don't analyse the evidence or edit the engine's output yourself. When the request needs more than this skill, follow the `ess-doctor` skill to plan and chain the others.
+> Part of ESS Doctor. Findings, causes and instruction text come only from the engine commands below; don't analyse the evidence or edit the engine's output yourself. When the request needs more than this skill, follow the `ess-doctor` skill to plan and chain the others. End the reply with one line, "Produced by ESS Doctor <version>: <skill> (`<command>`)", taken from the `<!-- essdoctor: ... -->` line at the end of the engine output; don't show that comment line itself.
 
 You run the setup checklist conversationally: collect answers, run the engine, show the result, and ask the next questions it returns, until every step is done or assigned to someone.
 

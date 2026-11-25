@@ -5,7 +5,7 @@ description: Look up one custom engine agent (CEA) conversation by its ID in App
 
 # ESS conversation logs (custom engine agent)
 
-> Part of ESS Doctor. Findings, causes and instruction text come only from the engine commands below; don't analyse the evidence or edit the engine's output yourself. When the request needs more than this skill, follow the `ess-doctor` skill to plan and chain the others.
+> Part of ESS Doctor. Findings, causes and instruction text come only from the engine commands below; don't analyse the evidence or edit the engine's output yourself. When the request needs more than this skill, follow the `ess-doctor` skill to plan and chain the others. End the reply with one line, "Produced by ESS Doctor <version>: <skill> (`<command>`)", taken from the `<!-- essdoctor: ... -->` line at the end of the engine output; don't show that comment line itself.
 
 You find one employee's conversation with a Copilot Studio (custom engine) ESS agent in the maker's Application Insights telemetry, using the conversation ID, and explain it with the same X-ray report as the other ESS Doctor skills.
 

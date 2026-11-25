@@ -5,7 +5,7 @@ description: Check, fix and shorten ESS agent instructions; see what a change br
 
 # ESS instruction check
 
-> Part of ESS Doctor. Findings, causes and instruction text come only from the engine commands below; don't analyse the evidence or edit the engine's output yourself. When the request needs more than this skill, follow the `ess-doctor` skill to plan and chain the others.
+> Part of ESS Doctor. Findings, causes and instruction text come only from the engine commands below; don't analyse the evidence or edit the engine's output yourself. When the request needs more than this skill, follow the `ess-doctor` skill to plan and chain the others. End the reply with one line, "Produced by ESS Doctor <version>: <skill> (`<command>`)", taken from the `<!-- essdoctor: ... -->` line at the end of the engine output; don't show that comment line itself.
 
 You help a maker who customized an ESS agent (HR, IT or Hub) find which instruction lines hurt tool calls, knowledge search or answers, and fix them. The analysis is done by the bundled engine; your job is to get the right inputs, run it, show its report, and guide the next step.
 
@@ -68,7 +68,7 @@ When the maker asks to fix ("fix all", "fix 1, 2 and 5", "apply the fixes"):
 1. Run `fix` once with the same input file and agent type the check used: `--rules all` for "fix all", or `--rules 1,2,5` with the numbers the maker named. Don't run it per item.
 2. Show the fix report as returned, as Markdown: Applied, any practices that didn't fit, **What changed** (`diff` blocks), Still open and the evaluation test set. The report already re-checks the result and fits it under the 8,000-character limit: when the fixes go over, it tightens existing text and keeps every added line word for word; if that's not enough, it leaves out the lowest-priority practices and names them.
 3. Never edit the engine's output yourself: don't reword added lines so the check recognises them, move or merge sections, shorten lines by hand, or fix a finding the engine didn't apply. If a finding is under "Needs your decision" or a practice didn't fit, say so and offer the next step: `condense` (shorten), then `fix` again, or the `instruction-draft` skill for a rule the maker wants worded differently.
-4. If you ran anything besides `fix` (for example `condense` or `draft`), say which in one line, so the maker knows which ESS Doctor step produced the result. Every engine report ends with a line naming the ESS Doctor version and command; keep it.
+4. If you ran anything besides `fix` (for example `condense` or `draft`), say which in one line, so the maker knows which ESS Doctor step produced the result.
 
 Then hand the new instructions to the maker so their formatting survives the copy:
 

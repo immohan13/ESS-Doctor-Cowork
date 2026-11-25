@@ -691,7 +691,7 @@ def test_fix_all_adds_practices_in_their_own_sections_and_recheck_is_clean():
     links = fixed.split("# Always preserve", 1)[1].split("\n#", 1)[0]
     assert "search" not in links.lower()
     assert re.search(r"After the fix: 0 issue\(s\) left, (\d+) of \1 authoring practices", report)
-    assert "ESS Doctor" in report.splitlines()[-1] and "`fix`" in report.splitlines()[-1]
+    assert report.splitlines()[-1].startswith("<!-- essdoctor: version=") and "command=fix" in report.splitlines()[-1]
 
 
 def test_plan_identifies_each_file_and_routes_to_plugin_skills():
