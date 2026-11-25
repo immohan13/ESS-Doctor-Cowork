@@ -536,6 +536,11 @@ def build(text: str, *, question: str = "", response: str = "", current=None, sn
                  "the answer step's content moderation stopped it.")
     if check and check["followed"] is False:
         cause = "The instructions say to decline this question, but the agent answered it."
+    no_question = not q and not any(_messages(doc)[0])
+    if no_question:
+        cause = ("The snapshot has no question in it: it was saved before anything was asked, so it only shows the "
+                 "welcome message. It still shows the agent's setup." if kind == "snapshot" else
+                 "The conversation has no user message, so there's no answer to diagnose.")
     happened = list(d["happened"]) + list(extra_happened or [])
     steps = list(d["next_steps"])
     bf = bot_findings(bot_yaml)
@@ -558,6 +563,11 @@ def build(text: str, *, question: str = "", response: str = "", current=None, sn
                             "the employee's own record; ask the employee for the missing detail (for example country), or "
                             "give the base policy and list the variations.")
     keys = ["planner", "search", "synthesis", "render"]
+    if no_question:
+        st = {k: UNKNOWN for k in keys}
+        steps.append("Ask the failing question in the Copilot Studio test pane, then open ⋯ > Save snapshot right after the "
+                     "answer and upload that snapshot for a step-by-step X-ray." if kind == "snapshot" else
+                     "Pick the transcript that contains the employee's question.")
     first = next((k for k in keys if st.get(k) == FAILED), None)
 
     title = {"snapshot": "test pane snapshot", "appinsights": "Application Insights logs"}.get(kind, "transcript")

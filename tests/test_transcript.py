@@ -712,3 +712,27 @@ def test_plan_identifies_each_file_and_routes_to_plugin_skills():
     assert "Monitor > Sessions download | CEA | transcript-xray" in md
     assert "Developer mode card | DA | conversation-xray" in md and "DevUI conversation export" in md
     assert "fix" in md and "--rules all" in md and "both a declarative agent and a custom engine agent" in md
+
+
+def test_snapshot_without_a_question_is_reported_and_routed_to_check():
+    import contextlib
+    import tempfile
+    import zipfile as _zip
+    from pathlib import Path
+    import essdoctor_cli
+
+    dialog = json.dumps({"activities": [{"type": "message", "from": {"role": 0}, "text": "Hi, I'm here to help."}]})
+    with tempfile.TemporaryDirectory() as d:
+        snap = Path(d) / "snap.zip"
+        with _zip.ZipFile(snap, "w") as z:
+            z.writestr("dialog.json", dialog)
+            z.writestr("botContent.yml", "kind: BotDefinition\n")
+        outs = []
+        for args in (["xray", str(snap)], ["plan", str(snap)]):
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                assert essdoctor_cli.main(args) == 0
+            outs.append(out.getvalue())
+    assert "The snapshot has no question in it" in outs[0] and "Save snapshot right after the answer" in outs[0]
+    assert "FAILED HERE" not in outs[0]
+    assert "without a question" in outs[1] and "| instruction-check |" in outs[1]

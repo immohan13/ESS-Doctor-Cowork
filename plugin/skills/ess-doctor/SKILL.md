@@ -41,14 +41,24 @@ For each step, follow that skill's own `SKILL.md` (its Run, Respond and Rules se
 Chain the skills the way their reports point, without waiting to be asked:
 
 - A conversation X-ray with a sorry answer: `sorry-triage` across the other conversations you have (see `transcript-xray`).
+- A test pane snapshot "without a question" (the plan says so): don't X-ray it on its own; it adds the agent's instructions and setup, so pass it with `sorry-triage` and use it for `check`. Ask the maker for a snapshot saved right after the failing answer if they want a step-by-step X-ray.
 - A report that names instruction lines: `instruction-check` (`check`, then `fix` when the maker agrees). For a CEA, pass `--agent-type cea`.
 - Any instruction change (`fix`, `draft`, `condense`): share the `outputs/evalset.csv` it wrote; after the maker re-runs the evaluation, `eval-compare` the before and after results.
+- Make **one** instruction change per reply: the one the evidence points to most (a `draft` for a missing rule, or `fix` for the check's findings). If both are needed, run the second on the first one's output file so the final instructions contain both, never two separate files. Offer anything else as the next step.
 
 ## 3. Respond
 
-- Show each engine report as its skill says (Markdown reports as Markdown, X-ray reports in a `text` block), keeping tables and `diff` blocks exactly as returned. Every report ends with a line naming the ESS Doctor version, skill and command; keep it, so the maker can see which skill produced it.
-- Start the reply with one line listing the skills you ran, for example _"Ran: transcript-xray → sorry-triage → instruction-check (fix)"_.
-- Then the short summary and next step that the last skill's Respond section asks for. Refer to findings by number and title, never by internal rule IDs.
+When you ran more than one skill, the reply has this shape and nothing more. The per-skill Respond sections apply only when the maker invoked that skill on its own.
+
+1. **One line** naming the skills you ran, for example _"Ran: transcript-xray → sorry-triage → instruction-draft"_.
+2. **Summary**: at most four bullets, one per cause, merged across the reports (the same cause from two reports is one bullet). Each bullet says what's wrong, for which questions, and who fixes it.
+3. **The main report, in full**: only the one that answers the maker's question (the Sessions X-ray for a sessions file, the conversation X-ray for one conversation, or the check report for an instructions request). Show it exactly as its skill says: an X-ray goes in one `text` block line for line, with its `====` rules and every section; Markdown reports as Markdown with their tables and `diff` blocks. Never show a shortened or partial report.
+4. **Other reports, one line each**: its key result and the version line, for example _"Sorry triage: 3 of 3 sorries are maker-fixable (2 no match, 1 missing employee details) · ESS Doctor 2.9.1 · sorry-triage"_. End with "Ask for any of these to see the full report."
+5. **Changes to make**, only if a step changed the instructions: the change's `diff` blocks as returned; then the changes made in Copilot Studio rather than in the instructions (topics, knowledge sources, settings), as a short list.
+6. **Final instructions**, only if a step changed the instructions: print the final file (`cat`) and show its full content, unchanged, in one fenced `text` code block, so the maker copies it with the code block's **Copy** button. Never tell the maker to open the `.txt` file instead: a file preview renders it as Markdown and drops numbering and blank lines. Under it, one line: paste it in Copilot Studio > **Overview > Instructions > Edit** (select all, paste), save, **Publish**, test in a new chat.
+7. **Test and next step**: share `outputs/evalset.csv` with the four import steps on one line each, then one question offering the next step.
+
+Refer to findings by number and title, never by internal rule IDs. No headings beyond "Changes to make" and "Final instructions".
 
 ## Rules
 

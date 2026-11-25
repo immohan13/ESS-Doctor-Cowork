@@ -1343,7 +1343,11 @@ def _identify(name: str, data: bytes) -> tuple[str, str, str]:
     from ess_maker.doctor import appinsights, devmode, transcript
 
     if zipfile.is_zipfile(io.BytesIO(data)):
-        if _snapshot(data):
+        snap = _snapshot(data)
+        if snap:
+            docs = transcript.load(snap[0])
+            if docs and not any(u for d in docs for u in transcript._messages(d)[0]):
+                return "Test pane snapshot without a question (agent setup and welcome message only)", "cea", "snapshot"
             return "Copilot Studio test pane snapshot (conversation + agent setup)", "cea", "snapshot"
         with zipfile.ZipFile(io.BytesIO(data)) as z:
             names = z.namelist()
@@ -1426,6 +1430,9 @@ def cmd_plan(a) -> str:
     steps: list[str] = []
     for path, name, what, t, key in rows:
         skill, cmd, why = _PLAN.get(key, ("", "", ""))
+        if key == "snapshot" and "without a question" in what:
+            skill, cmd, why = "instruction-check", f'check "{path}"', \
+                "No question in it, so it's used for the agent's instructions and setup, not an X-ray"
         if key == "instructions" and re.search(r"\b(add|change|draft|write|update|new rule|tune|don'?t|never)\b", ask) \
                 and not re.search(r"\b(check|review|fix|validate)\b", ask):
             skill, cmd, why = "instruction-draft", f'draft "{path}" --type <change type> --intent "<the change>"', \
