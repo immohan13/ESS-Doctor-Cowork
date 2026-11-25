@@ -15,13 +15,13 @@
 
 ### Instruction rules behind the maker-owned sorries
 
-| Rule | Sorry turns | What's wrong | Fix |
-| --- | --- | --- | --- |
-| L5-OVER-AUGMENTED-QUERY | 1 | Job level/title is appended to search queries (line 51) | Add the user's country only for policies that vary by country (holidays, leave, benefits, payroll). Add job level only for level-specific programs or eligibility. Otherwise search with the user's words. |
-| L2-GROUNDING-MISSING | 1 | ESS core block missing: Tool-first grounding (line 1, 4) | Restore the ESS template '#Tool-first grounding' block: require a completed tool/KB call before any substantive answer, and use the standard abstain message when sources don't cover the question. |
-| L2-RETRY-MISSING | 1 | ESS core block missing: Knowledge retry budget (line 1, 4) | Add: 'If the first knowledge search lacks a close match, make at most one more search with synonyms or broader terms. If still unsupported, say so and offer the approved support route.' |
+| What's wrong | Sorry turns | Fix |
+| --- | --- | --- |
+| Job level/title is appended to search queries (line 51) | 1 | Add the user's country only for policies that vary by country (holidays, leave, benefits, payroll). Add job level only for level-specific programs or eligibility. Otherwise search with the user's words. |
+| ESS core block missing: Tool-first grounding | 1 | Restore the ESS template '#Tool-first grounding' block: require a completed tool/KB call before any substantive answer, and use the standard abstain message when sources don't cover the question. |
+| ESS core block missing: Knowledge retry budget | 1 | Add: 'If the first knowledge search lacks a close match, make at most one more search with synonyms or broader terms. If still unsupported, say so and offer the approved support route.' |
 
-Already fixed in the current instructions: L2-GROUNDING-MISSING, L2-RETRY-MISSING.
+Already fixed in the current instructions: ESS core block missing: Tool-first grounding; ESS core block missing: Knowledge retry budget.
 
 ### Every sorry turn
 
@@ -44,7 +44,7 @@ Agent versions in this evidence: Contoso ESS 1.0.7, T_contoso.ess.hr 1.0.7.
 
 ### Proposed instruction changes
 
-ESS Doctor can apply 1 of these automatically (L5-OVER-AUGMENTED-QUERY). Ask it to run the fix, or copy the green lines into Copilot Studio > Overview > Instructions.
+ESS Doctor can apply 1 of these automatically. Ask it to run the fix, or copy the green lines into Copilot Studio > Overview > Instructions.
 
 **✏️ Changed: Employee relocation restriction** (line 52)
 

@@ -33,13 +33,15 @@ If the plugin isn't installed, ask the maker to paste the instructions, and ment
 Run the engine with Python 3 from this skill's folder (`scripts/essdoctor.py`):
 
 ```bash
-python3 scripts/essdoctor.py check inputs/current.txt --previous inputs/previous.txt --persona auto
-python3 scripts/essdoctor.py fix inputs/current.txt --out outputs/fixed_instructions.txt [--rules RULE-ID,RULE-ID]
+python3 scripts/essdoctor.py check inputs/current.txt --previous inputs/previous.txt --persona auto [--agent-type cea]
+python3 scripts/essdoctor.py fix inputs/current.txt --out outputs/fixed_instructions.txt [--rules 1,2,5] [--agent-type cea]
 python3 scripts/essdoctor.py condense inputs/current.txt --out outputs/shortened_instructions.txt
 python3 scripts/essdoctor.py practices
 ```
 
 - Omit `--previous` when there is no previous version.
+- Pass `--agent-type cea` for a custom engine agent (for example when the maker is working from sessions, transcripts or Application Insights logs) and `--agent-type da` for a declarative agent. A test pane snapshot or `botContent.yml` is treated as a custom engine agent automatically. Custom engine agents aren't checked for the declarative agent core blocks, because their template routes, grounds and retries through topics.
+- `--rules` takes the numbers the check report shows (findings and practice gaps share one numbering).
 - A line starting with `ERROR:` on stderr means the input can't be used; tell the maker what the message asks for.
 - `check` (when it has questions to test), `fix` and `condense` also write `outputs/evalset.csv`: a Copilot Studio evaluation test set for the change, with ESS regression questions and an expected response for each. When you re-run `check` on a fixed or shortened file, add `--no-evalset` so it keeps the set the fix wrote.
 
@@ -50,12 +52,12 @@ Every proposed change in the report is a `diff` code block: removed lines start 
 1. Show the engine's Markdown report as returned, as Markdown (not in a code block), so its tables and numbered findings render. Don't rewrite, reorder or drop findings, and don't add findings of your own.
 2. Then add **What matters most** in at most three short numbered points: the findings most likely behind the maker's complaint (quote the line number and what employees would ask that goes wrong), and whether the length leaves room for the suggested additions. Practice gaps that are also missing from the ESS template are lower priority; mention them in one line at most. Don't repeat the report's tables.
 3. Then one short **Next step** line offering the action:
-   - **Fix**: run `fix` (all, or only the rule IDs the maker picks), show the report, and hand over `outputs/fixed_instructions.txt` as described in "Applying a fix".
+   - **Fix**: run `fix` (all, or only the numbers the maker picks, for example "1, 2 and 5"), show the report, and hand over `outputs/fixed_instructions.txt` as described in "Applying a fix".
    - **Shorten**: when the length is near or over 8,000 characters as Copilot Studio counts them, run `condense`. It aims for 7,200 characters, leaving a 10% buffer under the 8,000 limit (`--target` changes it); run it before adding practices.
    - **Re-test**: the questions under "Test after fixing", in the evaluation test set.
 4. After a fix, run `check --no-evalset` again on the fixed file and confirm the high findings are gone.
 5. Whenever `outputs/evalset.csv` was written, share it as a downloadable file and tell the maker how to use it in four short steps: in Copilot Studio open the agent > **Evaluation** > **Create a test set** > upload the CSV; run it on the current version; publish the change and run it again; upload both results files here to compare them with `eval-compare`.
-6. Keep it scannable: no headings beyond the two above, bold only key numbers and line references, and no emoji beyond those in the report.
+6. Keep it scannable: no headings beyond the two above, bold only key numbers and line references, and no emoji beyond those in the report. Refer to findings by their number and title, never by internal rule IDs (such as `L5-…` or `BP-…`) or practice codes (such as P10); makers don't need them. Line numbers are lines in the Copilot Studio instructions box.
 
 ## Applying a fix
 

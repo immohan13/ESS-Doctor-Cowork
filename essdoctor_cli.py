@@ -172,8 +172,61 @@ def _cell(s) -> str:
     return re.sub(r"\s+", " ", str(s or "")).replace("|", "\\|").strip()
 
 
-def _lines(f: dict) -> str:
-    return ", ".join(str(n) for n in (f.get("lines") or [])[:6]) or "-"
+def _lines(f: dict, offset: int = 0) -> str:
+    return ", ".join(str(n - offset) for n in (f.get("lines") or [])[:6]) or "-"
+
+
+def _offset(doc: AgentDoc) -> int:
+    """File lines before the instructions (a YAML export), so line numbers match the Copilot Studio instructions box."""
+    return max(0, doc.instructions[0].no - 1) if doc.instructions else 0
+
+
+def _where(f: dict, offset: int) -> str:
+    return "Not in your instructions" if f.get("current") == "(not present)" else f"Line {_lines(f, offset)}"
+
+
+def _title(f: dict) -> str:
+    return re.sub(r"\s*\(template '.*$", "", _cell(f.get("title"))).replace("Not following: ", "")
+
+
+def _at(x: dict, offset: int) -> str:
+    """' (line N)' for a fix entry, or '' for a whole block that was missing."""
+    rid = x.get("rule_id") or ""
+    if (rid.startswith("L2-") and rid.endswith("-MISSING")) or rid.startswith("BP-") or not x.get("lines"):
+        return ""
+    return f" (line {_lines(x, offset)})"
+
+
+def _is_cea(path: str, agent_type: str) -> bool:
+    """Custom engine agent: told so, or the input is a test pane snapshot or its botContent.yml."""
+    if agent_type in ("cea", "da"):
+        return agent_type == "cea"
+    if re.search(r"(?i)botcontent", Path(path).name):
+        return True
+    try:
+        return bool(_snapshot(_read(path)))
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _cea_skip(f) -> bool:
+    """Declarative agent core-block rules: a custom engine agent's template routes through topics instead."""
+    rid = f["rule_id"] if isinstance(f, dict) else f.rule_id
+    return rid.startswith("L2-") and rid.endswith("-MISSING")
+
+
+_ORDER = {"high": 0, "medium": 1, "low": 2, "info": 3}
+
+
+def _check_items(doc: AgentDoc, base, cea: bool) -> tuple[list[dict], list[dict], list[dict], dict]:
+    """Findings, own practice gaps and template-shared gaps in report order (numbered 1..n across all three)."""
+    findings = [f.to_dict() for f in validate(doc, base) if not (cea and _cea_skip(f))]
+    findings.sort(key=lambda f: (_ORDER.get(f["severity"], 9), f["origin"] == "template"))
+    gaps, card = practices.check(doc)
+    base_gaps = set(practices.check(base)[1]["gaps"]) if base else set()
+    own = [g.to_dict() for g in gaps if g.rule_id not in base_gaps]
+    shared = [g.to_dict() for g in gaps if g.rule_id in base_gaps]
+    return findings, own, shared, card
 
 
 def _write(path: str, text: str) -> None:
@@ -239,15 +292,16 @@ def _indent(text: str, pad: str = "   ") -> list[str]:
     return [pad + ln if ln else "" for ln in text.splitlines()]
 
 
-def _rule_diff(doc: AgentDoc, base, rule_id: str, per_block: int = 8) -> str:
-    """The diff the auto-fix would make for one rule or practice, or '' when it can't be applied automatically."""
+def _rule_diff(doc: AgentDoc, base, rule_id: str, per_block: int = 8) -> tuple[str, str]:
+    """(diff the auto-fix would make for one rule or practice, why it can't when there is none)."""
     try:
         r = fix(doc, base, [rule_id])
     except Exception:  # noqa: BLE001 - a proposal is optional; the prose fix still shows
-        return ""
+        return "", ""
     if not r["applied"] or not any(b["status"] != "unchanged" for b in r["diff"].get("blocks") or []):
-        return ""
-    return _diff_md({**r["diff"], "char_delta": 0, "moderation_changed": False}, per_block=per_block)
+        why = next((m["change"] for m in r["manual"] if m["rule_id"] == rule_id), "")
+        return "", why
+    return _diff_md({**r["diff"], "char_delta": 0, "moderation_changed": False}, per_block=per_block), ""
 
 
 _RULE_ID = re.compile(r"\b((?:L\d+|BP)-[A-Z0-9]+(?:-[A-Z0-9]+)*)\b")
@@ -275,8 +329,7 @@ def _proposed(doc: AgentDoc | None, base, report: str) -> list[str]:
     if not r["applied"]:
         return []
     return ["### Proposed instruction changes", "",
-            f"ESS Doctor can apply {len(r['applied'])} of these automatically "
-            f"({', '.join(dict.fromkeys(x['rule_id'] for x in r['applied']))}). Ask it to run the fix, or copy the "
+            f"ESS Doctor can apply {len(r['applied'])} of these automatically. Ask it to run the fix, or copy the "
             "green lines into Copilot Studio > Overview > Instructions.", "", _diff_md(r["diff"])]
 
 
@@ -295,24 +348,26 @@ def cmd_check(a) -> str:
     doc = load_agent(a.instructions)
     persona = _persona(a.persona, doc)
     base = baseline(persona)
-    findings = [f.to_dict() for f in validate(doc, base)]
-    gaps, card = practices.check(doc)
-    base_gaps = set(practices.check(base)[1]["gaps"]) if base else set()
+    cea = _is_cea(a.instructions, getattr(a, "agent_type", "auto"))
+    findings, own, shared, card = _check_items(doc, base, cea)
+    off = _offset(doc)
     presence = core_presence(doc)
     raw, studio = len(doc.instruction_text), studio_len(doc.instruction_text)
     counts = {s: sum(1 for f in findings if f["severity"] == s) for s in ("high", "medium", "low")}
     missing = [b["title"] for b in CORE_BLOCKS if not presence[b["id"]]]
-    who = f"the ESS {persona.upper()} template" if base else "the ESS rules (no template baseline)"
+    who = (f"the ESS {persona.upper()} template" if base else "the ESS rules (no template baseline)") + (
+        ", as a custom engine agent" if cea else "")
     over = studio > DA_INSTRUCTION_LIMIT
     near = studio > DA_INSTRUCTION_LIMIT * 0.9
+    core_cell = ("➖ not used by custom engine agents" if cea else
+                 f"✅ {len(CORE_BLOCKS)} of {len(CORE_BLOCKS)} present" if not missing else "❌ missing: " + ", ".join(missing))
     md = ["## Instruction check", "",
           f"Checked against {who}.", "",
           "| Findings | Length (Copilot Studio count) | Authoring practices | ESS core blocks |",
           "| --- | --- | --- | --- |",
           f"| {_SEV['high']} {counts['high']} high · {_SEV['medium']} {counts['medium']} medium · {_SEV['low']} {counts['low']} low "
           f"| {'❌' if over else '⚠️' if near else '✅'} {studio:,} of {DA_INSTRUCTION_LIMIT:,} ({raw:,} raw) "
-          f"| {card['followed']} of {card['applicable']} followed "
-          f"| {'✅ ' + str(len(CORE_BLOCKS)) + ' of ' + str(len(CORE_BLOCKS)) + ' present' if not missing else '❌ missing: ' + ', '.join(missing)} |",
+          f"| {card['followed']} of {card['applicable']} followed | {core_cell} |",
           ""]
     if a.previous:
         prev = load_agent(a.previous, "Previous version")
@@ -320,28 +375,32 @@ def cmd_check(a) -> str:
         new = [f for f in findings if (f["rule_id"], f["current"]) not in prev_keys]
         md += ["### What changed since the previous version", "", _diff_md(diff_docs(prev, doc)), ""]
         md += ["### Findings introduced by this change", ""]
-        md += [f"- {_SEV.get(f['severity'], '')} **{f['severity']}** {f['rule_id']} (line {_lines(f)}): {_cell(f['title'])}. "
+        md += [f"- {_SEV.get(f['severity'], '')} **{_title(f)}** ({_where(f, off).lower()}). "
                f"Employees see: {_cell(f['user_sees']).lower()}." for f in new] \
             or ["- None. The findings below were already present in the previous version."]
         md.append("")
     if findings:
-        order = {"high": 0, "medium": 1, "low": 2, "info": 3}
-        ordered = sorted(findings, key=lambda f: (order.get(f["severity"], 9), f["origin"] == "template"))
         md += ["### Fix first", ""]
-        shown: set[str] = set()
-        for i, f in enumerate(ordered, 1):
+        shown: dict[str, int] = {}
+        for i, f in enumerate(findings, 1):
             origin = " · also in the ESS template" if f["origin"] == "template" else ""
-            md += [f"{i}. {_SEV.get(f['severity'], '')} **{_cell(f['title'])}**  ",
-                   f"   Line {_lines(f)} · `{f['rule_id']}` · {f['severity']}{origin}",
+            md += [f"{i}. {_SEV.get(f['severity'], '')} **{_title(f)}**  ",
+                   f"   {_where(f, off)} · {f['severity']}{origin}",
                    f"   - **Employees see:** {_cell(f['user_sees'])}",
                    f"   - **Fix:** {_cell(f['fix'])}", ""]
-            if f["origin"] != "template" and f["auto_fixable"] and f["rule_id"] not in shown:
-                shown.add(f["rule_id"])
-                d = "" if f["rule_id"] in LENGTH_RULES else _rule_diff(doc, base, f["rule_id"])
-                if d:
-                    md += ["   **Proposed change:**", ""] + _indent(d) + [""]
-                elif f["rule_id"] in LENGTH_RULES:
-                    md += ["   Ask ESS Doctor to shorten the instructions for the line-by-line changes.", ""]
+            if f["origin"] == "template" or not f["auto_fixable"]:
+                continue
+            if f["rule_id"] in LENGTH_RULES:
+                md += ["   Ask ESS Doctor to shorten the instructions for the line-by-line changes.", ""]
+                continue
+            d, why = _rule_diff(doc, base, f["rule_id"])
+            if d and d in shown:
+                md += [f"   **Proposed change:** the change under finding {shown[d]} covers this too.", ""]
+            elif d:
+                shown[d] = i
+                md += ["   **Proposed change:**", ""] + _indent(d) + [""]
+            elif why:
+                md += [f"   **Why there's no proposed change:** {_cell(why)}", ""]
         tests = sorted({p for f in findings if f["origin"] != "template" for p in f.get("test_prompts") or []})
         if tests:
             md += ["### Test after fixing", ""] + [f"- {t}" for t in tests[:12]] + [""]
@@ -349,51 +408,80 @@ def cmd_check(a) -> str:
     else:
         md += ["✅ No rule findings.", ""]
     md += ["### ESS core blocks", ""]
-    if not missing:
-        md += ["✅ All present: " + ", ".join(f"{b['title']} (line {presence[b['id']][0]})" for b in CORE_BLOCKS) + ".", ""]
+    if cea:
+        md += ["A custom engine agent routes, grounds and retries through its topics, so the declarative agent core "
+               "blocks (routing decision tree, tool-first grounding, knowledge retry) aren't checked.", ""]
+    elif not missing:
+        md += ["✅ All present: " + ", ".join(f"{b['title']} (line {presence[b['id']][0] - off})" for b in CORE_BLOCKS) + ".", ""]
     else:
-        md += [f"- {b['title']}: present (line {presence[b['id']][0]})" if presence[b["id"]] else f"- ❌ {b['title']}: **missing**"
+        md += [f"- {b['title']}: present (line {presence[b['id']][0] - off})" if presence[b["id"]] else f"- ❌ {b['title']}: **missing**"
                for b in CORE_BLOCKS] + [""]
     md += [f"### Authoring practices: {card['followed']} of {card['applicable']} followed", ""]
-    if not gaps:
+    if not own and not shared:
         md.append("✅ All applicable practices are followed.")
-    own = [g.to_dict() for g in gaps if g.to_dict()["rule_id"] not in base_gaps]
-    shared = [g.to_dict() for g in gaps if g.to_dict()["rule_id"] in base_gaps]
+    n = len(findings)
     for title, rows in (("Gaps in your instructions", own),
                         ("Also missing from the ESS template (lower priority)", shared)):
         if rows:
             md += [f"**{title}**", ""]
             for d in rows:
+                n += 1
                 where, text = _practice_fix(d["fix"])
-                md.append(f"- **{d['rule_id'][3:]} {_cell(d['title'].replace('Not following: ', ''))}**"
+                md.append(f"{n}. **{_cell(d['title'].replace('Not following: ', ''))}**"
                           + (f": add under *{where}*" if where else ""))
-                change = _rule_diff(doc, base, d["rule_id"]) if title.startswith("Gaps") else ""
+                change = _rule_diff(doc, base, d["rule_id"])[0] if title.startswith("Gaps") else ""
                 block = change or "\n".join(_diff_block([f"+ {ln}" for ln in text.splitlines() if ln.strip()] or ["+ " + text]))
-                md += [""] + _indent(block, "  ") + [""]
+                md += [""] + _indent(block, "   ") + [""]
+    if findings or own or shared:
+        md += ["To apply fixes, ask ESS Doctor to fix all of them or name the numbers above (for example \"fix 1, 2 and 5\").", ""]
     if a.json:
-        _write(a.json, json.dumps({"persona": persona, "findings": findings, "practices": card,
+        _write(a.json, json.dumps({"persona": persona, "cea": cea, "findings": findings, "practices": card,
+                                   "numbers": {i: x["rule_id"] for i, x in enumerate(findings + own + shared, 1)},
                                    "chars": {"raw": raw, "studio": studio, "limit": DA_INSTRUCTION_LIMIT}}, indent=2, default=list))
     return "\n".join(md)
+
+
+def _fix_ids(a, doc: AgentDoc, base, cea: bool) -> list[str] | None:
+    """Rule IDs to fix from --rules: rule IDs or the numbers the check report shows. None means all findings."""
+    wanted = [r.strip() for r in (a.rules or "").replace(" ", ",").split(",") if r.strip()]
+    if not wanted:
+        if not cea:
+            return None
+        ids = [f.rule_id for f in validate(doc, base) if f.origin == "maker" and not _cea_skip(f)]
+        return ids or ["NONE"]
+    findings, own, shared, _ = _check_items(doc, base, cea)
+    numbered = [x["rule_id"] for x in findings + own + shared]
+    out = []
+    for w in wanted:
+        if w.isdigit():
+            if not 1 <= int(w) <= len(numbered):
+                raise InputError(f"There's no finding {w}; the check shows 1 to {len(numbered)}.")
+            out.append(numbered[int(w) - 1])
+        else:
+            out.append(w)
+    return list(dict.fromkeys(out))
 
 
 def cmd_fix(a) -> str:
     doc = load_agent(a.instructions)
     base = baseline(_persona(a.persona, doc))
-    rule_ids = [r.strip() for r in a.rules.split(",") if r.strip()] if a.rules else None
-    r = fix(doc, base, rule_ids)
+    cea = _is_cea(a.instructions, getattr(a, "agent_type", "auto"))
+    off = _offset(doc)
+    r = fix(doc, base, _fix_ids(a, doc, base, cea))
     _write(a.out, r["new_instructions"])
     c = r["chars"]
+    remaining = [x for x in r["remaining"] if not (cea and _cea_skip(x))]
     md = ["## ESS Doctor fix", "",
-          f"Applied {len(r['applied'])} fix(es); {len(r['manual'])} need a manual change. Maker findings: "
-          f"{r['counts']['before']} → {r['counts']['after']}. Length {c['before']:,} → {c['after']:,} of {c['limit']:,}.",
+          f"Applied {len(r['applied'])} fix(es); {len(r['manual'])} need a manual change. "
+          f"Length {c['before']:,} → {c['after']:,} of {c['limit']:,}.",
           f"The fixed instructions are in `{a.out}`.", ""]
     if r["applied"]:
-        md += ["### Applied", ""] + [f"- {x['rule_id']} (line {_lines(x)}): {_cell(x['change'])}" for x in r["applied"]] + [""]
+        md += ["### Applied", ""] + [f"- **{_title(x)}**{_at(x, off)}: {_cell(x['change'])}" for x in r["applied"]] + [""]
     if r["manual"]:
-        md += ["### Needs your decision", ""] + [f"- {x['rule_id']} (line {_lines(x)}) {_cell(x['title'])}: {_cell(x['change'])}" for x in r["manual"]] + [""]
+        md += ["### Needs your decision", ""] + [f"- **{_title(x)}**{_at(x, off)}: {_cell(x['change'])}" for x in r["manual"]] + [""]
     md += ["### What changed", "", _diff_md(r["diff"]), ""]
-    if r["remaining"]:
-        md += ["### Still open", ""] + [f"- **{x['severity']}** {x['rule_id']}: {_cell(x['title'])}" for x in r["remaining"][:10]] + [""]
+    if remaining:
+        md += ["### Still open", ""] + [f"- {_SEV.get(x['severity'], '')} {_title(x)}" for x in remaining[:10]] + [""]
     if r["tests"]:
         md += ["### Re-test with", ""] + [f"- {t}" for t in r["tests"][:10]] + [""]
     md += _evalset(a, r["tests"], a.out)
@@ -996,7 +1084,7 @@ def cmd_audit(a) -> str:
         md += ["✅ No cross-agent gaps found.", ""]
     for i, g in enumerate(real, 1):
         md += [f"{i}. {_SEV.get(g.severity, '')} **{_cell(g.title)}**  ",
-               f"   {', '.join(_cell(n) for n in g.agents)} · `{g.rule_id}` · {g.severity}",
+               f"   {', '.join(_cell(n) for n in g.agents)} · {g.severity}",
                f"   - **Why it matters:** {_cell(g.detail)}",
                f"   - **Fix:** {_cell(g.fix)}", ""]
         if g.change:
@@ -1168,11 +1256,14 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="essdoctor", description="ESS Doctor: check, fix and troubleshoot Employee Self-Service agents.")
     sub = ap.add_subparsers(dest="cmd", required=True)
     persona = {"choices": ["auto", "hr", "it", "hub", "none"], "default": "auto", "help": "ESS template to compare with"}
+    agent_type = {"choices": ["auto", "da", "cea"], "default": "auto",
+                  "help": "Declarative agent or custom engine agent (auto: a test pane snapshot or botContent.yml is a CEA)"}
 
     p = sub.add_parser("check", help="Check instructions against the ESS template, known issues and practices")
     p.add_argument("instructions")
     p.add_argument("--previous", help="Previous version, to show what the change introduced")
     p.add_argument("--persona", **persona)
+    p.add_argument("--agent-type", **agent_type)
     p.add_argument("--json", help="Also write the full result as JSON to this path")
     p.add_argument("--evalset", help="Where to write the Copilot Studio evaluation test set CSV")
     p.add_argument("--no-evalset", action="store_true", help="Don't write the evaluation test set")
@@ -1180,8 +1271,9 @@ def main(argv: list[str] | None = None) -> int:
 
     p = sub.add_parser("fix", help="Apply the safe fixes and write the fixed instructions")
     p.add_argument("instructions")
-    p.add_argument("--rules", help="Comma-separated rule IDs to fix (default: all auto-fixable)")
+    p.add_argument("--rules", help="Finding numbers from the check report (for example 1,2,5) or rule IDs (default: all)")
     p.add_argument("--persona", **persona)
+    p.add_argument("--agent-type", **agent_type)
     p.add_argument("--out", default="outputs/fixed_instructions.txt")
     p.add_argument("--evalset", help="Where to write the Copilot Studio evaluation test set CSV")
     p.add_argument("--no-evalset", action="store_true", help="Don't write the evaluation test set")

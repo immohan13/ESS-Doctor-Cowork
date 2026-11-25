@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import re
 
 from ess_maker.doctor import devui, sorry, transcript
 
@@ -386,7 +387,8 @@ def test_check_report_orders_findings_and_splits_practice_gaps():
     assert "🔴" in first and "**Employees see:**" in first and "**Fix:**" in first
     assert "**Proposed change:**" in report
     practices_part = report.split("### Authoring practices", 1)[1]
-    assert "```diff\n" in practices_part and "\n  + " in practices_part
+    assert "```diff\n" in practices_part and "\n   + " in practices_part
+    assert not re.search(r"`(L\d|BP)-[A-Z]", report) and "Line 1065" not in report
     assert "Copilot Studio count" in report
 
 
@@ -634,3 +636,29 @@ def test_sorry_triage_counts_a_session_once_when_its_transcript_is_uploaded():
         with contextlib.redirect_stdout(out):
             assert essdoctor_cli.main(["sorry-triage", str(Path(d) / "Sessions.csv"), str(Path(d) / "t.json")]) == 0
     assert "3 turn(s) analyzed; 2 ended" in out.getvalue()
+
+
+def test_check_skips_core_blocks_for_cea_and_fix_takes_finding_numbers():
+    import contextlib
+    import tempfile
+    from pathlib import Path
+    import essdoctor_cli
+
+    text = ("# Core identity\nYou are an HR assistant for Contoso employees.\n"
+            "When searching, always append the user's job level {Global.JobLevel} to the query.\n")
+    with tempfile.TemporaryDirectory() as d:
+        src = Path(d) / "i.txt"
+        src.write_text(text, encoding="utf-8")
+        reports = {}
+        for kind in ("da", "cea"):
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                assert essdoctor_cli.main(["check", str(src), "--persona", "hr", "--agent-type", kind, "--no-evalset"]) == 0
+            reports[kind] = out.getvalue()
+        assert "ESS core block missing" in reports["da"] and "ESS core block missing" not in reports["cea"]
+        assert "\n1. **" in reports["cea"] and not re.search(r"`(L\d|BP)-", reports["cea"])
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            assert essdoctor_cli.main(["fix", str(src), "--rules", "1", "--agent-type", "cea", "--out", str(Path(d) / "f.txt"),
+                                       "--no-evalset"]) == 0
+        assert "Applied 1 fix(es)" in out.getvalue()

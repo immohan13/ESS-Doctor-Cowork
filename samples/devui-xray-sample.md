@@ -1,7 +1,7 @@
 ```text
 Conversation Investigation (DevUI trace) — conv-demo-1
 Source: Copilot DevUI conversation export (M365 Copilot orchestrator telemetry), current agent instructions
-Generated: 2026-11-25 18:14 UTC
+Generated: 2026-11-25 19:38 UTC
 
 ==============================================================
 USER QUESTION
@@ -109,7 +109,7 @@ Memory and personalization content are redacted in the export. Full prompt text 
 
 ### Proposed instruction changes
 
-ESS Doctor can apply 2 of these automatically (L2-ROUTING-MISSING, L2-GROUNDING-MISSING). Ask it to run the fix, or copy the green lines into Copilot Studio > Overview > Instructions.
+ESS Doctor can apply 2 of these automatically. Ask it to run the fix, or copy the green lines into Copilot Studio > Overview > Instructions.
 
 **✏️ Changed: Text before the first heading** (line 2)
 

@@ -294,20 +294,21 @@ def build(result: dict) -> str:
               "moderation or connections) without waiting for content or backend changes."]
     if result["rules"]:
         L += ["", "### Instruction rules behind the maker-owned sorries", "",
-              "| Rule | Sorry turns | What's wrong | Fix |", "| --- | --- | --- | --- |"]
+              "| What's wrong | Sorry turns | Fix |", "| --- | --- | --- |"]
         cf = result["current_findings"]
         ordered = sorted(result["rules"], key=lambda x: (bool(cf) and x[0] not in cf, -x[1]))
+        gone_titles = []
         for rid, k in ordered[:10]:
             f = cf.get(rid) or result["served_findings"].get(rid)
-            title = f.title if f else "Found in the instructions that ran"
-            if f is not None and f.lines:
+            title = re.sub(r"\s*\(template '.*$", "", f.title) if f else "A rule in the instructions that ran"
+            if f is not None and f.lines and f.current != "(not present)":
                 title += " (line " + ", ".join(map(str, f.lines[:3])) + ")"
             fix = f.fix if f else "Run the instruction check on the current instructions to see the line and fix."
-            L.append(f"| {rid} | {k} | {_cell(title)[:160]} | {_cell(fix)[:220]} |")
-        if cf:
-            gone = [rid for rid, _ in result["rules"] if rid not in cf]
-            if gone:
-                L.append(f"\nAlready fixed in the current instructions: {', '.join(gone)}.")
+            L.append(f"| {_cell(title)[:160]} | {k} | {_cell(fix)[:220]} |")
+            if cf and rid not in cf:
+                gone_titles.append(re.sub(r"\s*\(template '.*$", "", f.title) if f else "a rule")
+        if gone_titles:
+            L.append(f"\nAlready fixed in the current instructions: {'; '.join(gone_titles)}.")
     L += ["", "### Every sorry turn", "", "| # | Question | Agent said | Cause | Evidence |", "| --- | --- | --- | --- | --- |"]
     for k, i in enumerate(sorry, 1):
         L.append(f"| {k} | {_cell(i.question)[:120]} | {_cell(i.response)[:120] or '(no answer)'} | {CAUSES[i.cause].title} | {_cell(i.detail)[:180]} |")

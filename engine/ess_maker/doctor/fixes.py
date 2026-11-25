@@ -73,7 +73,7 @@ def _apply_one(f: Finding, doc: AgentDoc, t: _Text, baseline: AgentDoc | None) -
             or next((b for b in blocks if re.search(r"core identity", b.title, re.I)), None)
         anchor = target.end if target else max(t.lines)
         t.insert_after(anchor, [pr["sentence"]])
-        return f"Added best practice {pr['id']}" + (f" to '{target.title}'." if target else ".")
+        return "Added the practice" + (f" to '{target.title}'." if target else ".")
 
     if rid == "L3-ABSOLUTE-OVERRIDE":
         cur = t.get(no)
