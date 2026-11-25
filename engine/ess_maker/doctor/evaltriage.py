@@ -212,6 +212,40 @@ def triage_row(r: dict, agent: AgentDoc) -> Triage:
     return t
 
 
+def _norm_text(s: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", re.sub(r"[*_`]", "", s or "").lower()).strip()
+
+
+_REQUIRED = re.compile(r"\b(end|close|finish|append|add|include)\b[^.\n]{0,60}\b(every|each|all|any)\b[^.\n]{0,40}"
+                       r"\b(response|reply|replies|answer|answers|message|messages)\b|\bdisclaimer\b|\bclosing line\b", re.I)
+_QUOTED = re.compile(r"[\"“]([^\"“”]{20,300})[\"”]")
+
+
+def required_lines(agent: AgentDoc) -> list[dict]:
+    """Instruction lines that require an exact sentence in every response, such as a disclaimer."""
+    out = []
+    for ln in agent.instructions:
+        if _REQUIRED.search(ln.text):
+            for q in _QUOTED.findall(ln.text):
+                if len(_norm_text(q).split()) >= 4:
+                    out.append({"line": ln.no, "text": q.strip()})
+    return out[:3]
+
+
+def check_required(agent: AgentDoc, rows: list[dict], items: list) -> list[dict]:
+    """How many responses miss each required sentence, counting passing questions too."""
+    out = []
+    passed = {id(r) for r, t in zip(rows, items) if t.cause == "pass"}
+    for req in required_lines(agent):
+        key = _norm_text(req["text"])[:80]
+        missing = [r for r in rows if r["actual"] and key not in _norm_text(r["actual"])]
+        answered = [r for r in rows if r["actual"]]
+        if answered:
+            out.append({**req, "missing": len(missing), "of": len(answered),
+                        "missing_in_passes": sum(1 for r in missing if id(r) in passed)})
+    return out
+
+
 def triage(text: str, agent: AgentDoc) -> dict:
     rows = parse_results(text)
     has_results = any(r["result"] for r in rows)
@@ -225,6 +259,7 @@ def triage(text: str, agent: AgentDoc) -> dict:
         "counts": counts,
         "items": [{**t.__dict__, "cause_label": CAUSE_LABEL.get(t.cause, ""), "owner": OWNER.get(t.cause, "")}
                   for t in failed],
+        "required": check_required(agent, rows, items) if has_results else [],
         "summary": summary_text(agent, items, counts) if has_results else "",
     }
 

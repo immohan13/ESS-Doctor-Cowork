@@ -313,3 +313,33 @@ def test_business_apps_transcript_rows_pick_the_question():
     assert '"what is my leave policy"' in report
     assert "2 transcripts in the file" in report
     assert "I couldn't verify your country." in report
+
+
+def test_eval_triage_report_flags_required_line_missing_from_passing_answers():
+    import contextlib
+    import tempfile
+    from pathlib import Path
+    import essdoctor_cli
+
+    instructions = ("#Core identity\nYou are an HR agent.\n"
+                    "Never guess or use KB search as a fallback for personal data or HR case operations.\n"
+                    "#Formatting\nEnd every response with: \"The agent is in preview, so verify the results it provides.\"\n")
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["question", "expectedResponse", "actualResponse", "result", "explanation"])
+    w.writerow(["What is the parental leave policy?", "Policy", "Parental leave is 16 weeks.", "Pass", "ok"])
+    w.writerow(["How many vacation days do I have left?", "Balance",
+                "I couldn't find a definitive answer. [1](https://x/Benefits.aspx \"Benefits.aspx\")", "Fail", "no balance"])
+    with tempfile.TemporaryDirectory() as d:
+        src, res = Path(d) / "current.txt", Path(d) / "results.csv"
+        src.write_text(instructions, encoding="utf-8")
+        res.write_text(buf.getvalue(), encoding="utf-8")
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            assert essdoctor_cli.main(["eval-triage", str(res), "--instructions", str(src)]) == 0
+    report = out.getvalue()
+
+    assert "**1 of 2 passed**" in report
+    assert "A required line is missing from 2 of 2 responses, including 1 that passed" in report
+    assert "### At a glance" in report and "| Scenario doesn't exist | 1 | #1 |" in report
+    assert "### Who fixes what" in report

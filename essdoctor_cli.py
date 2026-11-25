@@ -538,16 +538,75 @@ def cmd_eval_triage(a) -> str:
     r = evaltriage.triage(_text(_read(a.csv)), doc)
     if not r.get("has_results", True) or not r.get("total"):
         raise InputError("No evaluation results found. Upload the results CSV exported from the agent's Evaluation page.")
-    return "## Evaluation triage\n\n" + (r.get("summary") or "").strip() + "\n\n" + _triage_table(r)
+    return _triage_report(r)
 
 
-def _triage_table(r: dict) -> str:
-    items = r.get("items") or []
+_SHORT_OWNER = {"instruction": "You, in the instructions", "scenario_off": "Maker / admin: topics and connections",
+                "scenario_missing": "Maker / admin: add the scenario", "content_gap": "Knowledge-source content owner",
+                "review": "You: review the conversation"}
+
+
+def _clip(s: str, n: int) -> str:
+    """Shorten at a sentence (or word) boundary so table cells don't end mid-word."""
+    s = _cell(s)
+    if len(s) <= n:
+        return s
+    cut = max(s.rfind(". ", 0, n), s.rfind("; ", 0, n))
+    return s[:cut + 1] if cut > n // 2 else s[:s.rfind(" ", 0, n)] + "…"
+
+
+def _triage_report(r: dict) -> str:
+    items, req = r.get("items") or [], r.get("required") or []
+    total, passed, failed = r["total"], r["passed"], r["failed"]
+    md = ["## Evaluation triage", "", f"**{passed} of {total} passed** · ✅ {passed} passed · ❌ {failed} failed", ""]
+
+    for q in req:
+        if q["missing"]:
+            md += [f"> ⚠️ **A required line is missing from {q['missing']} of {q['of']} responses"
+                   + (f", including {q['missing_in_passes']} that passed" if q["missing_in_passes"] else "") + ".**",
+                   f"> Instruction line {q['line']} asks every response to include: *\"{_cell(q['text'])}\"*",
+                   "> The grader only judged answer quality, so passing questions don't show this. "
+                   "Add a check for this exact sentence to the evaluation.", ""]
+
     if not items:
-        return "No failed questions."
-    md = ["### Failed questions", "", "| Question | What happened | Who fixes it | Fix |", "| --- | --- | --- | --- |"]
+        md.append("No failed questions.")
+        return "\n".join(md)
+
+    by_cause: dict[str, list[int]] = {}
+    for i, x in enumerate(items, 1):
+        by_cause.setdefault(x.get("cause") or "review", []).append(i)
+    md += ["### At a glance", "", "| Cause | Failed | Questions | Who fixes it |", "| --- | --- | --- | --- |"]
+    for cause, nums in sorted(by_cause.items(), key=lambda kv: -len(kv[1])):
+        label = next((x.get("cause_label") for x in items if x.get("cause") == cause), cause)
+        md.append(f"| {_cell(label)} | {len(nums)} | {', '.join(f'#{n}' for n in nums)} | {_SHORT_OWNER.get(cause, '')} |")
+
+    md += ["", "### Failed questions", "", "| # | Question | What happened | Fix |", "| --- | --- | --- | --- |"]
+    for i, x in enumerate(items, 1):
+        what = _clip(x.get("headline"), 240)
+        if x.get("secondary"):
+            what += "<br>⚠️ " + _clip(x["secondary"], 240)
+        md.append(f"| {i} | **{_clip(x.get('question'), 160)}** | {what} | {_clip(x.get('fix'), 320)} |")
+
+    flagged = [x for x in items if x.get("secondary") and x.get("lines")]
+    if flagged:
+        md += ["", "### Instruction lines involved", ""]
+        seen = set()
+        for x in flagged:
+            for ln in x["lines"]:
+                if ln["line"] not in seen:
+                    seen.add(ln["line"])
+                    md.append(f"- Line {ln['line']}: *\"{_cell(ln['text'])}\"*")
+
+    owners: dict[str, list[str]] = {}
+    if any(q["missing"] for q in req):
+        owners.setdefault("You, in the instructions", []).append("Required line missing from responses")
+    kb = [_clip(x.get("question"), 60) for x in items if x.get("secondary")]
+    if kb:
+        owners.setdefault("You, in the instructions", []).append(f"Knowledge search before abstaining ({', '.join(kb)})")
     for x in items:
-        md.append(f"| {_cell(x.get('question'))[:160]} | {_cell(x.get('headline'))[:220]} | {_cell(x.get('owner'))} | {_cell(x.get('fix'))[:260]} |")
+        owners.setdefault(_SHORT_OWNER.get(x.get("cause"), "You"), []).append(_clip(x.get("question"), 60))
+    md += ["", "### Who fixes what", "", "| Owner | What to fix |", "| --- | --- |"]
+    md += [f"| {o} | {'; '.join(dict.fromkeys(v))} |" for o, v in owners.items()]
     return "\n".join(md)
 
 
