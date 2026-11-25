@@ -26,7 +26,7 @@ It runs as a Microsoft Copilot Cowork plugin. Makers with Cowork upload their ag
 | `templates/` | ESS HR, IT and Hub instruction templates used as the baseline |
 | `samples/` | Sample reports and synthetic Contoso inputs to share with makers |
 | `docs/reduce-sorry-playbook.md` | Playbook for bringing down sorry and no-answer replies |
-| `docs/devui-vs-developer-mode.md` | Developer mode setup for makers, and what developer mode, DevUI and Purview each show |
+| `docs/devui-vs-developer-mode.md` | Developer mode setup for makers, what developer mode, DevUI and Purview each show for declarative agents, and which evidence to use for custom engine agents (test pane snapshot, transcript, Application Insights) |
 | `tests/` | Engine tests |
 
 The engine is a standalone copy. The ESS Doctor web app and the Copilot Studio ESS Doctor solution are maintained separately.

@@ -63,7 +63,19 @@ The example sizes come from one ESS HR conversation ("compare my salary with ama
 
 ## Custom engine agents (CEA)
 
-A custom engine agent is a Copilot Studio agent that Microsoft 365 Copilot hands the question to. Its planning, topics, knowledge search and tools run inside Copilot Studio, so the evidence is different:
+A custom engine agent is a Copilot Studio agent that Microsoft 365 Copilot hands the question to. Its planning, topics, knowledge search and tools run inside Copilot Studio, so the evidence is different.
+
+### Which evidence to use
+
+Environment-level Application Insights export needs a managed environment, so the recommended path works without it:
+
+| Situation | Evidence | What it covers |
+| --- | --- | --- |
+| Maker reproduces it in the test pane | Test pane snapshot | Everything: question, search query and documents, topic steps, instructions and setup |
+| Real employee conversation | Transcript (Bot Transcript Viewer role) | Plan, knowledge searches, tools, errors |
+| Real conversation without transcript access | Agent-level Application Insights telemetry | Question and reply, topics and steps, ESS logger events; no searches |
+
+### Evidence compared
 
 | What it shows | DevUI export | Test pane snapshot | Copilot Studio transcript (Dataverse `conversationtranscript`) | Application Insights logs | Copilot Studio Analytics > Sessions download |
 | --- | --- | --- | --- | --- | --- |
