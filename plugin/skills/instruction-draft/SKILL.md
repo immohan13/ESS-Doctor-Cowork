@@ -50,6 +50,8 @@ If the draft report says more detail is needed, ask the maker those questions an
 
 ## Respond
 
+The report's **What changed** section shows each changed section as a `diff` code block: removed lines start with `-` (red) and added lines with `+` (green). Keep those blocks exactly as returned, including the `diff` language tag, so the colors render.
+
 1. Show the draft report as returned, as Markdown (not in a code block), so its summary table, test table and checks render. Don't rebuild its tables.
 2. `draft` shortens the instructions automatically when the change takes them over the 8,000-character limit, aiming for 7,200 to leave a 10% buffer (the new rule is kept word for word, and every ESS ability is kept); the report says what it tightened, or which lines to shorten if it's still over. Don't shorten lines yourself. If it's still over, tell the maker which line to move into a topic description, or offer to run `condense` with a lower `--target` and `--no-evalset`.
 3. Run `check --no-evalset` on the final file. If it introduced a high finding, say so plainly, propose a narrower wording in the same section and re-run. You may suggest clearer wording for the added clause, but re-run `check` on any edited version before offering it.

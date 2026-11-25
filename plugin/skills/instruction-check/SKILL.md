@@ -45,6 +45,8 @@ python3 scripts/essdoctor.py practices
 
 ## Respond
 
+The report's **What changed** section shows each changed section as a `diff` code block: removed lines start with `-` (red) and added lines with `+` (green). Keep those blocks exactly as returned, including the `diff` language tag, so the colors render.
+
 1. Show the engine's Markdown report as returned, as Markdown (not in a code block), so its tables and numbered findings render. Don't rewrite, reorder or drop findings, and don't add findings of your own.
 2. Then add **What matters most** in at most three short numbered points: the findings most likely behind the maker's complaint (quote the line number and what employees would ask that goes wrong), and whether the length leaves room for the suggested additions. Practice gaps that are also missing from the ESS template are lower priority; mention them in one line at most. Don't repeat the report's tables.
 3. Then one short **Next step** line offering the action:

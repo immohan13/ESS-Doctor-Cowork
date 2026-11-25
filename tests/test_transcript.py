@@ -553,3 +553,21 @@ def test_agent_audit_reads_alm_exports_with_config_values():
 
     assert len(files) == 1 and "https://contoso.sharepoint.com/sites/hr" in files[0][1]
     assert "| Contoso HR |" in out.getvalue() and "Content moderation is Low" in out.getvalue()
+
+
+def test_what_changed_uses_colored_diff_blocks():
+    import contextlib
+    import tempfile
+    from pathlib import Path
+    import essdoctor_cli
+
+    with tempfile.TemporaryDirectory() as d:
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            assert essdoctor_cli.main(["fix", "samples/inputs/contoso_instructions.txt", "--out", str(Path(d) / "f.txt"),
+                                       "--no-evalset"]) == 0
+    changed = out.getvalue().split("### What changed", 1)[1]
+
+    assert "```diff\n- " in changed and "\n+ " in changed
+    assert "**✏️ Changed: Routing decision tree**" in changed
+    assert "\u00e2\u2020\u2019" not in out.getvalue() and "\u00e2\u20ac\u00a6" not in out.getvalue()

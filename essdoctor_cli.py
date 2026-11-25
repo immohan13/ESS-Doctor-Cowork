@@ -197,26 +197,36 @@ def _evalset(a, tests: list, beside: str = "") -> list[str]:
             "each with the expected response. " + evalset.IMPORT_STEPS, ""]
 
 
-def _diff_md(diff: dict, limit: int = 60, per_block: int = 5) -> str:
+_DIFF_STATUS = {"added": "➕ Added", "removed": "➖ Removed", "modified": "✏️ Changed"}
+
+
+def _diff_md(diff: dict, limit: int = 80, per_block: int = 12) -> str:
+    """Changed sections as ```diff blocks, so removed lines show in red and added lines in green."""
     out, n = [], 0
     for r in diff.get("blocks") or []:
         if r["status"] == "unchanged":
             continue
-        out.append(f"- **{r['status']}**: {r['title']}")
         hunks = r.get("hunks") or []
+        first = next((h.get("line") for h in hunks if h.get("line")), None)
+        out.append(f"**{_DIFF_STATUS.get(r['status'], r['status'])}: {_cell(re.sub(r'\s*\(.*$', '', r['title']).strip())}**"
+                   + (f" (line {first})" if first else ""))
+        out += ["", "```diff"]
         for h in hunks[:per_block]:
             if n >= limit:
                 break
-            out.append(f"  - `{h['op']}` line {h.get('line', '?')}: {_cell(h['text'])[:220]}")
+            text = (h.get("text") or "").rstrip().replace("```", "'''")
+            out.append(f"{'+' if h.get('op') == '+' else '-'} {text[:400]}")
             n += 1
         if len(hunks) > per_block:
-            out.append(f"  - â€¦ {len(hunks) - per_block} more line(s)")
+            out.append(f"@@ {len(hunks) - per_block} more changed line(s) @@")
+        out += ["```", ""]
     if diff.get("moderation_changed"):
-        out.append(f"- **content moderation**: {diff['old'].get('content_moderation') or 'not set'} â†’ "
-                   f"{diff['new'].get('content_moderation') or 'not set'}")
+        out += ["**✏️ Changed: content moderation**", "", "```diff",
+                f"- {diff['old'].get('content_moderation') or 'not set'}",
+                f"+ {diff['new'].get('content_moderation') or 'not set'}", "```", ""]
     if diff.get("char_delta"):
-        out.append(f"- Length changed by {diff['char_delta']:+,} characters.")
-    return "\n".join(out) if out else "No section changed."
+        out.append(f"Length changed by {diff['char_delta']:+,} characters.")
+    return "\n".join(out).rstrip() if out else "No section changed."
 
 
 # --- Commands ---------------------------------------------------------------------------------------------
@@ -313,7 +323,7 @@ def cmd_fix(a) -> str:
     c = r["chars"]
     md = ["## ESS Doctor fix", "",
           f"Applied {len(r['applied'])} fix(es); {len(r['manual'])} need a manual change. Maker findings: "
-          f"{r['counts']['before']} â†’ {r['counts']['after']}. Length {c['before']:,} â†’ {c['after']:,} of {c['limit']:,}.",
+          f"{r['counts']['before']} → {r['counts']['after']}. Length {c['before']:,} → {c['after']:,} of {c['limit']:,}.",
           f"The fixed instructions are in `{a.out}`.", ""]
     if r["applied"]:
         md += ["### Applied", ""] + [f"- {x['rule_id']} (line {_lines(x)}): {_cell(x['change'])}" for x in r["applied"]] + [""]
@@ -334,7 +344,7 @@ def cmd_condense(a) -> str:
     _write(a.out, r["new_text"])
     c = r["chars"]
     md = ["## ESS Doctor shorten", "",
-          f"Length as Copilot Studio counts it: {c['before']:,} â†’ {c['after']:,} (target {r['target']:,}). "
+          f"Length as Copilot Studio counts it: {c['before']:,} → {c['after']:,} (target {r['target']:,}). "
           + ("Target reached." if r["reached"] else f"Still {r['still_needed']:,} characters over; see the candidates below."),
           f"The shortened instructions are in `{a.out}`.", ""]
     if r["steps"]:
@@ -598,7 +608,7 @@ def cmd_xray(a) -> str:
               "### Agents", ""] + [f"- {n}: {c} interactions" for n, c in r["agents"]] + ["", "### By agent version", ""]
         for v in r["versions"]:
             md.append(f"- **{_cell(v.get('agent') or '')} {v.get('version', '')}**: {v.get('interactions')} interactions, "
-                      f"{v.get('first')} â†’ {v.get('last')}; resources: {_cell(v.get('resources'))[:300]}; plugins: {_cell(v.get('plugins'))[:200]}")
+                      f"{v.get('first')} → {v.get('last')}; resources: {_cell(v.get('resources'))[:300]}; plugins: {_cell(v.get('plugins'))[:200]}")
         md += ["", "Compare when each version started with when the instructions changed, then upload a developer mode card "
                    "of a failing question, with the question and the agent's answer, for a step-by-step X-ray."]
         return "\n".join(md)
@@ -852,7 +862,7 @@ def _clip(s: str, n: int) -> str:
     if len(s) <= n:
         return s
     cut = max(s.rfind(". ", 0, n), s.rfind("; ", 0, n))
-    return s[:cut + 1] if cut > n // 2 else s[:s.rfind(" ", 0, n)] + "â€¦"
+    return s[:cut + 1] if cut > n // 2 else s[:s.rfind(" ", 0, n)] + "…"
 
 
 def _triage_report(r: dict) -> str:
