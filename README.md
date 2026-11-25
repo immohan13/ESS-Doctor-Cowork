@@ -18,6 +18,7 @@ It runs as a Microsoft Copilot Cowork plugin. Makers with Cowork upload their ag
 | `instruction-draft` | Draft a change (terminology, restriction, format, routing, escalation, persona, disclaimer, employee context) in the right section, then check it |
 | `eval-triage` | Explain failed evaluation questions and compare two runs |
 | `servicenow-setup` | ServiceNow Knowledge connector setup checklist with silent-failure risks and per-role to-dos |
+| `topic-generator` | Generate a topic the ESS way (Workday, ServiceNow HRSD/ITSM, SAP SuccessFactors, knowledge-only, HTTP) with its ESS template configuration, a matching agent skill (`SKILL.md`) and evaluation questions; check existing topics against the same rules |
 
 ## Repository layout
 

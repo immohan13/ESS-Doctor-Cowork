@@ -1269,13 +1269,13 @@ def cmd_audit(a) -> str:
            "| --- | --- | --- | --- | --- | --- | --- | --- |"]
     for x in sorted(agents, key=lambda x: (role.get(id(x), "Other") != "Hub", role.get(id(x), "Other") != "Child", x.name)):
         fs = checks.get(id(x), [])
-        sev = " ? ".join(f"{_SEV[s]} {n}" for s in ("high", "medium") if (n := sum(1 for f in fs if f.severity == s)))
+        sev = " · ".join(f"{_SEV[s]} {n}" for s in ("high", "medium") if (n := sum(1 for f in fs if f.severity == s)))
         ks = f"{len(x.knowledge)}" + (" ??" if len([k for k in x.knowledge if k.active]) > audit.KNOWLEDGE_FILTER_LIMIT else "")
-        md.append(f"| **{_cell(x.name)}** | {role.get(id(x), 'Other')} | {ks if x.full_export else '?'} | "
-                  f"{sum(1 for t in x.topics if t.active and t.searches) if x.full_export else '?'} | "
-                  f"{len(x.connected) or len(x.instruction_refs) or '?'} | "
-                  f"{studio_len(x.instructions):,} characters | {sev or ('? none' if x.instructions else '?')} | "
-                  f"{x.settings.get('contentModeration', '?')} |")
+        md.append(f"| **{_cell(x.name)}** | {role.get(id(x), 'Other')} | {ks if x.full_export else '—'} | "
+                  f"{sum(1 for t in x.topics if t.active and t.searches) if x.full_export else '—'} | "
+                  f"{len(x.connected) or len(x.instruction_refs) or '—'} | "
+                  f"{studio_len(x.instructions):,} characters | {sev or ('✅ none' if x.instructions else '—')} | "
+                  f"{x.settings.get('contentModeration', '—')} |")
     md.append("")
 
     real = [g for g in gaps if g.severity != "info"]
@@ -1283,12 +1283,12 @@ def cmd_audit(a) -> str:
     options = [g for g in real if g.optional]
     md += ["### Gaps across the agents", ""]
     if not fixes:
-        md += ["? No cross-agent gaps found.", ""]
+        md += ["✅ No cross-agent gaps found.", ""]
     for i, g in enumerate(fixes + options, 1):
         if i == len(fixes) + 1:
             md += ["### Optional", "", "Choices to consider, not fixes; each has a trade-off.", ""]
-        md += [f"{i}. {_SEV.get(g.severity, '') if not g.optional else '?'} **{_cell(g.title)}**  ",
-               f"   {', '.join('**' + _cell(n) + '**' for n in g.agents)}" + ("" if g.optional else f" ? {g.severity}"),
+        md += [f"{i}. {_SEV.get(g.severity, '') if not g.optional else '⚪'} **{_cell(g.title)}**  ",
+               f"   {', '.join('**' + _cell(n) + '**' for n in g.agents)}" + ("" if g.optional else f" · {g.severity}"),
                f"   - **Why it matters:** {_cell(g.detail)}",
                f"   - **{'Option' if g.optional else 'Fix'}:** {_cell(g.fix)}", ""]
         if g.proposals:
@@ -1296,7 +1296,7 @@ def cmd_audit(a) -> str:
             md += [f"   | {what} | Now | Proposed description |", "   | --- | --- | --- |"]
             md += [f"   | {_cell(n)} | {_clip(_cell(now), 90)} | {_cell(prop)} |" for n, now, prop in g.proposals[:12]]
             if len(g.proposals) > 12:
-                md.append(f"   | ?and {len(g.proposals) - 12} more | | |")
+                md.append(f"   | …and {len(g.proposals) - 12} more | | |")
             md.append("")
         if g.change:
             md += [f"   **Proposed change**" + (f" (Copilot Studio > {_cell(g.where)})" if g.where else "") + ":", ""]
@@ -1307,13 +1307,13 @@ def cmd_audit(a) -> str:
     if rows:
         for x, fs in rows:
             top = sorted(fs, key=lambda f: {"high": 0, "medium": 1, "low": 2}.get(f.severity, 3))
-            sev = " ? ".join(f"{_SEV[s]} {n} {s}" for s in ("high", "medium", "low")
+            sev = " · ".join(f"{_SEV[s]} {n} {s}" for s in ("high", "medium", "low")
                              if (n := sum(1 for f in fs if f.severity == s)))
             names = "; ".join(_title(f.to_dict()) for f in top[:4]) + (f"; and {len(top) - 4} more" if len(top) > 4 else "")
-            md.append(f"- **{_cell(x.name)}** ? {sev}: {names}.")
+            md.append(f"- **{_cell(x.name)}** · {sev}: {names}.")
         md.append("")
     else:
-        md += ["? No instruction findings beyond the ESS template.", ""]
+        md += ["✅ No instruction findings beyond the ESS template.", ""]
 
     notes = [g for g in gaps if g.severity == "info"]
     missing = [re.sub(r" wasn't uploaded$", "", g.title) for g in notes if g.rule_id == "A11-CHILD-NOT-PROVIDED"]
@@ -1364,6 +1364,92 @@ def cmd_audit(a) -> str:
 
 def _norm_name(s: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", (s or "").lower()).strip("_") or "agent"
+
+def cmd_topic_gen(a) -> str:
+    """Generate a topic, its ESS template configuration, a matching skill and test questions from a scenario spec."""
+    from ess_maker.doctor import evalset, topicgen
+
+    data = json.loads(_text(_read(a.spec)))
+    if getattr(a, "agent_type", "auto") in ("da", "cea"):
+        data["agent_type"] = a.agent_type
+    try:
+        r = topicgen.generate(data)
+    except topicgen.SpecError as e:
+        raise InputError(str(e)) from None
+    s = r["spec"]
+    out = Path(a.out)
+    _write(str(out / "topic.yaml"), r["topic"])
+    _write(str(out / "SKILL.md"), r["skill"])
+    cfg = r["config"]
+    if cfg:
+        _write(str(out / cfg[0]), cfg[1])
+    rows = evalset.rows_for([{"prompt": x["prompt"], "expected": x["expected"]} for x in r["tests"]], include_golden=False)
+    _write(str(out / "evalset.csv"), evalset.to_csv(rows))
+    kind = {"read": "Answers a question", "create": "Creates a record", "update": "Updates a record"}[s.operation]
+    md = ["## Topic generator", "",
+          "| Topic | Backend | Agent type | Does | ESS scenario |", "| --- | --- | --- | --- | --- |",
+          f"| **{_cell(topicgen.topic_name(s))}** | {topicgen.BACKENDS[s.backend]} | "
+          f"{'declarative agent' if s.agent_type == 'da' else 'custom engine agent'} | {kind} for the "
+          f"{'manager (direct reports)' if s.audience == 'manager' else 'signed-in employee'} | "
+          f"{('`' + topicgen.scenario_name(s) + '`') if topicgen.scenario_name(s) else '—'} |", ""]
+    md += ["### Topic", "",
+           "In Copilot Studio: **Topics > Add a topic > From blank**, name it "
+           f"**{_cell(s.title)}**, open **⋯ > Open code editor**, select all, paste this, and save.", "",
+           "```yaml", r["topic"].rstrip(), "```", ""]
+    if cfg:
+        value = cfg[1]
+        m = re.search(r"<msdyn_value>(.*)</msdyn_value>", value, re.S)
+        if m:
+            import html as _html
+            value = _html.unescape(m.group(1))
+        lang = "xml" if value.lstrip().startswith("<") else "json"
+        md += ["### Template configuration", "",
+               "Add a row to the **Employee Self Service Template Configuration** table with unique name "
+               f"`{topicgen.scenario_name(s)}` and this value. The topic finds it by that name.", "",
+               f"```{lang}", value.rstrip(), "```", ""]
+    md += ["### Check before importing", ""] + [f"- {_cell(n)}" for n in r["notes"]] + [""]
+    if r["findings"]:
+        md += ["### Topic check", ""] + [f"- {_SEV.get(x.severity, '')} {_cell(x.title)}: {_cell(x.fix)}"
+                                          for x in r["findings"]] + [""]
+    else:
+        md += ["### Topic check", "", "✅ The generated topic passes every topic rule.", ""]
+    md += ["### Files", "",
+           f"- `{out / 'topic.yaml'}`: the topic above.",
+           *([f"- `{out / cfg[0]}`: the template configuration record."] if cfg else []),
+           f"- `{out / 'SKILL.md'}`: the same scenario as an agent skill, for when it moves from a topic to a skill.",
+           f"- `{out / 'evalset.csv'}`: {len(rows)} test questions (the trigger phrases, and what the topic must not "
+           "handle). " + evalset.IMPORT_STEPS, ""]
+    return "\n".join(md)
+
+
+def cmd_topic_check(a) -> str:
+    """Check one topic (code editor YAML) or every topic in a bot content export against the ESS topic rules."""
+    from ess_maker.doctor import topicgen
+
+    raw = _read(a.topic)
+    text = _text(raw)
+    if zipfile.is_zipfile(io.BytesIO(raw)):
+        snap = _snapshot(raw)
+        text = snap[1] if snap and snap[1] else ""
+    if not re.search(r"kind: (AdaptiveDialog|DialogComponent)|beginDialog:", text):
+        raise InputError("This isn't a topic. Paste the topic from Copilot Studio (Topics > the topic > ⋯ > Open code "
+                         "editor) or upload the agent's test pane snapshot or bot content export.")
+    n = len(topicgen._topics(text))
+    fs = topicgen.check(text, getattr(a, "agent_type", "auto"))
+    counts = {s: sum(1 for f in fs if f.severity == s) for s in ("high", "medium", "low")}
+    md = ["## Topic check", "",
+          f"{n} topic(s) checked · {_SEV['high']} {counts['high']} high · {_SEV['medium']} {counts['medium']} medium · "
+          f"{_SEV['low']} {counts['low']} low", ""]
+    if not fs:
+        return "\n".join(md + ["✅ Every topic passes the ESS topic rules."])
+    md += ["| # | Topic | Finding | Fix |", "| --- | --- | --- | --- |"]
+    md += [f"| {i} | **{_cell(f.topic)}** | {_SEV.get(f.severity, '')} {_cell(f.title)} | {_cell(f.fix)} |"
+           for i, f in enumerate(fs[:60], 1)]
+    if len(fs) > 60:
+        md.append(f"| | …and {len(fs) - 60} more | | |")
+    md += ["", "To rebuild a topic the ESS way, describe the scenario and ESS Doctor generates it (topic generator)."]
+    return "\n".join(md)
+
 
 
 def cmd_eval_triage(a) -> str:
@@ -1509,6 +1595,11 @@ def cmd_rules(a) -> str:
     md += [f"### Agent audit checks ({len(AUDIT_CHECKS)})", "",
            "The agent audit checks a hub and its child agents together:", ""]
     md += _grouped(AUDIT_CHECKS.values())
+    from ess_maker.doctor.topicgen import TOPIC_RULES
+
+    md += [f"### Topic rules ({len(TOPIC_RULES)})", "",
+           "The topic check (and every topic the topic generator writes) follows these:", ""]
+    md += _grouped(TOPIC_RULES.values())
     md += [f"### Authoring practices ({len(practices.PRACTICES)})", ""]
     md += _grouped((_STAGE_NAME.get(p.stage, p.stage), p.title) for p in practices.PRACTICES)
     return "\n".join(md).rstrip()
@@ -1546,7 +1637,8 @@ def cmd_component_update(a) -> str:
 _SKILL_OF = {"check": "instruction-check", "fix": "instruction-check", "condense": "instruction-check",
              "draft": "instruction-draft", "xray": "conversation-xray", "sorry-triage": "sorry-triage",
              "eval-triage": "eval-triage", "eval-compare": "eval-triage", "audit": "agent-audit", "plan": "ess-doctor",
-             "rules": "ess-doctor", "practices": "ess-doctor"}
+             "rules": "ess-doctor", "practices": "ess-doctor", "topic-gen": "topic-generator",
+             "topic-check": "topic-generator"}
 
 
 def _identify(name: str, data: bytes) -> tuple[str, str, str]:
@@ -1573,11 +1665,15 @@ def _identify(name: str, data: bytes) -> tuple[str, str, str]:
     head = text[:3000]
     low = head.lower()
     first = head.splitlines()[0] if head else ""
+    if re.match(r"\s*kind: AdaptiveDialog\b", text) or (re.search(r"(?m)^beginDialog:", head) and "kind: BotDefinition" not in head):
+        return "Copilot Studio topic (code editor YAML)", "", "topic"
     if text.lstrip().startswith(("{", "[")):
         try:
             obj = json.loads(text)
         except ValueError:
             obj = None
+        if isinstance(obj, dict) and obj.get("backend") and obj.get("purpose"):
+            return "Topic generator spec", "", "topicspec"
         if isinstance(obj, dict) and "requests" in obj and "messages" in obj:
             return "Conversation export from Microsoft support", "da", "devui"
         if transcript.load(text):
@@ -1619,6 +1715,8 @@ _PLAN = {
     "evalset": ("eval-triage", "", "Import it in Copilot Studio > Evaluation, run it, and upload the results CSV"),
     "agent": ("agent-audit", 'audit "{f}" [other agents]', "Gaps across hub and child agents"),
     "instructions": ("instruction-check", 'check "{f}"', "Findings, practices and proposed changes"),
+    "topic": ("topic-generator", 'topic-check "{f}"', "Checks the topic against the ESS topic rules"),
+    "topicspec": ("topic-generator", 'topic-gen "{f}"', "Generates the topic, template configuration, skill and tests"),
 }
 
 
@@ -1802,6 +1900,17 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("files", nargs="+")
     p.add_argument("--ask", default="", help="What the maker asked, to pick between check, fix, shorten and draft")
     p.set_defaults(fn=cmd_plan)
+
+    p = sub.add_parser("topic-gen", help="Generate a topic, its template configuration, a matching skill and tests from a spec")
+    p.add_argument("spec", help="Scenario spec (JSON): name, backend, purpose, triggers, not_for, inputs, outputs, options")
+    p.add_argument("--agent-type", **agent_type)
+    p.add_argument("--out", default="outputs/topic")
+    p.set_defaults(fn=cmd_topic_gen)
+
+    p = sub.add_parser("topic-check", help="Check a topic or every topic in an agent export against the ESS topic rules")
+    p.add_argument("topic", help="Topic YAML (code editor), test pane snapshot or bot content export")
+    p.add_argument("--agent-type", **agent_type)
+    p.set_defaults(fn=cmd_topic_check)
 
     p = sub.add_parser("rules", help="List everything ESS Doctor checks: instruction rules, audit checks, practices")
     p.set_defaults(fn=cmd_rules)

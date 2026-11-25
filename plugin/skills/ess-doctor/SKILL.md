@@ -1,6 +1,6 @@
 ---
 name: ess-doctor
-description: Start here for any Employee Self-Service (ESS) agent problem or change - sorry answers, wrong answers, instruction check, fix or draft, evaluation results, multi-agent audit. Plans which ESS Doctor skills to run and runs them in order.
+description: Start here for any Employee Self-Service (ESS) agent problem or change - sorry answers, wrong answers, instruction check, fix or draft, evaluation results, multi-agent audit, generating or checking topics. Plans which ESS Doctor skills to run and runs them in order.
 ---
 
 # ESS Doctor planner
@@ -44,6 +44,8 @@ For each step, follow that skill's own `SKILL.md` (its Run, Respond and Rules se
 | Routing through a CSV or table in knowledge, sessions counted in child agents | `agent-audit` | `audit` |
 | "It ignores my banned phrases", "it asks odd clarifying questions", the agent reports its own steps | `instruction-check` | `check`, `fix` |
 | ServiceNow knowledge setup questions | `servicenow-setup` | `setup-servicenow` |
+| "Create / generate a topic", "add a Workday, ServiceNow or SuccessFactors scenario", "a topic that answers X from these sources", a topic spec | `topic-generator` | `topic-gen` (collect the spec first) |
+| A topic pasted from the code editor, "check my topics", a snapshot when the maker asks about topics | `topic-generator` | `topic-check` |
 | "What does ESS Doctor check?", "list all rules / best practices" | this skill | `rules` (everything) or `practices` (authoring practices only); show the output as returned |
 
 Chain the skills the way their reports point, without waiting to be asked:

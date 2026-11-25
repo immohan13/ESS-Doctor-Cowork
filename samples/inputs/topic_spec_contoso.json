@@ -1,0 +1,24 @@
+{
+  "name": "Get education",
+  "backend": "workday",
+  "purpose": "their education history (school, degree, field of study)",
+  "operation": "read",
+  "audience": "employee",
+  "triggers": [
+    "What is my education?",
+    "Show my education details",
+    "What was my field of study?",
+    "Which degree do I have on file?"
+  ],
+  "not_for": [
+    "another person's education",
+    "adding or updating education records",
+    "training or learning courses"
+  ],
+  "outputs": [
+    { "name": "School", "source": "School_Name" },
+    { "name": "Degree", "source": "Degree_Reference" },
+    { "name": "FieldOfStudy", "source": "Field_Of_Study_Reference" }
+  ],
+  "options": { "service": "Human_Resources", "operation": "Get_Workers", "version": "v42.0" }
+}
