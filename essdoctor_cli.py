@@ -327,9 +327,12 @@ def cmd_draft(a) -> str:
     known = set(Intake.__dataclass_fields__)
     intake = Intake(**{k: v for k, v in fields.items() if k in known})
     r = _run_sync(draft(intake, doc, base, use_llm=False))
-    if r.get("needs_input"):
+    if "new_instructions" not in r:
         md = ["## ESS Doctor draft: more detail needed", ""]
-        md += [f"- {_cell(q if isinstance(q, str) else q.get('question') or q)}" for q in r.get("questions") or r.get("needs_input") or []]
+        if r.get("message"):
+            md += [_cell(r["message"]), ""]
+        md += [f"- {_cell(q if isinstance(q, str) else q.get('question') or q.get('label') or q)}"
+               for q in r.get("questions") or r.get("needs_input") or []]
         return "\n".join(md)
     _write(a.out, r["new_instructions"])
     md = ["## ESS Doctor draft", "", _cell(r.get("summary") or f"Drafted a {CHANGE_TYPES[intake.change_type]} change."),

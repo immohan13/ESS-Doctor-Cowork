@@ -189,3 +189,24 @@ def test_devui_custom_engine_turn_is_not_reported_as_ungrounded():
     assert "custom engine agent" in report
     assert "FAILED HERE" not in report
     assert "in Copilot Studio" in report
+
+
+def test_context_draft_lands_in_context_handling_section():
+    import tempfile
+    from pathlib import Path
+    import essdoctor_cli
+
+    instructions = ("#Core identity\nYou are an HR agent.\n\n#Context handling\n"
+                    "Use 'Country': {Global.ESS_UserContext_Country_Code} in every search.\n\n#When unsure\nSay so.\n")
+    intake = {"change_type": "context", "intent": "Ask when country is blank; no emails in searches",
+              "subject": "country", "should_affect": ["what is my leave policy"], "must_not_affect": ["reset my password"]}
+    with tempfile.TemporaryDirectory() as d:
+        src, req, out = Path(d) / "current.txt", Path(d) / "intake.json", Path(d) / "draft.txt"
+        src.write_text(instructions, encoding="utf-8")
+        req.write_text(json.dumps(intake), encoding="utf-8")
+        assert essdoctor_cli.main(["draft", str(src), "--intake", str(req), "--out", str(out)]) == 0
+        lines = out.read_text(encoding="utf-8").splitlines()
+
+    added = next(i for i, ln in enumerate(lines) if "user context values" in ln)
+    assert lines.index("#Context handling") < added < lines.index("#When unsure")
+    assert "never put names, emails or IDs in search queries" in lines[added]

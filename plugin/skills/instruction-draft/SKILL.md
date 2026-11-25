@@ -20,6 +20,7 @@ Ask only for what's missing, in one message:
 | `escalation` | `scope` (which questions) and `route` (where to send employees) |
 | `persona` | `intent` describing tone and voice |
 | `disclaimer` | exact `disclaimer_text`; optional `disclaimer_style` (`bold`, `italic`); optional `scope` |
+| `context` | profile fields the answer depends on as `subject` (for example "country and job level"); optional `scope` (which questions). Drafts one rule: use the user context values, ask or give the base policy when one is blank, and keep names, emails and IDs out of search queries |
 
 Also ask for 2–4 example questions that **should** change (`should_affect`) and 2–4 that **must not** (`must_not_affect`). Always put the maker's own words in `intent`.
 

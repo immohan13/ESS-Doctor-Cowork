@@ -22,6 +22,7 @@ CHANGE_TYPES = {
     "escalation": "Escalation / handoff",
     "persona": "Persona / tone",
     "disclaimer": "Disclaimer on responses",
+    "context": "Employee context (profile values and search privacy)",
     "condense": "Condense to a character target",
 }
 
@@ -34,6 +35,7 @@ SECTION_FOR = {
     "escalation": "# Escalation",
     "persona": "# Persona",
     "disclaimer": "# Formatting rules",
+    "context": "# Context handling",
 }
 _HOME = {
     "routing": r"routing",
@@ -43,6 +45,7 @@ _HOME = {
     "escalation": r"hand ?off|escalation",
     "format": r"formatting",
     "disclaimer": r"formatting|response format",
+    "context": r"context handling|user context|context",
 }
 
 
@@ -320,6 +323,13 @@ def draft_clause(intake: Intake) -> tuple[str, list[str]]:
         return (f"- End every response you write (answers, clarifying questions and the abstain message) with this line, "
                 f"exactly as written{how}, after the citations: \"{text}\"{end} Add it once per message; don't reword, translate "
                 "or shorten it.", ["P37", "P38", "P41", "P43"])
+    if t == "context":
+        fields = intake.subject or "country and job level"
+        scope = intake.scope or "policies that vary by location or level"
+        return (f"- When an answer depends on the employee's {fields} (for example {scope}), use the user context values. "
+                "If one is blank, don't search knowledge for the employee's record; ask for it, or give the base policy "
+                "and list the variations. Search with the question plus only details that change the answer; never put "
+                "names, emails or IDs in search queries.", ["P10", "P16", "P17", "P25", "P43"])
     raise ValueError(f"Unknown change type {t}")
 
 
