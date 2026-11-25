@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 import re
 
 from ess_maker.doctor import devmode
-from ess_maker.doctor.report import RULE, instruction_check
+from ess_maker.doctor.report import RULE, instruction_check, synthesis_reason
 from ess_maker.doctor.rules import PIPELINE_ORDER, validate
 
 _STAGE_KEYS = ["planner", "search", "synthesis", "render"]
@@ -110,6 +110,10 @@ def build(text: str, *, question: str = "", response: str = "", current=None) ->
     L += _section("3 Synthesis & safety")
     L.append("The card doesn't show safety classifiers or how the answer was written. "
              + ("The answer you added was checked for abstain wording." if response else "Add the agent's answer to check this stage."))
+    if response and st.get("synthesis") == "failed":
+        reason = synthesis_reason(response)
+        if reason:
+            L.append(reason)
 
     findings = [f for f in validate(current) if f.origin == "maker"] if current is not None else []
     backend_failed = any(e.get("ok") is False for e in acts) or any(e.get("ok") is False for e in caps)

@@ -119,3 +119,17 @@ def test_developer_json_card_with_matching_results_has_no_failure():
     assert r["stages"]["planner"] == "ok"
     assert r["stages"]["search"] == "ok"
     assert r["likely_cause"].startswith("No failure was found")
+
+
+def test_hedged_answer_fails_synthesis_and_report_quotes_why():
+    from ess_maker.doctor import devmode_report
+
+    card = _developer_card(["Leave-Policy-USA", "Leave-Policy-UK"], "Annual leave is 20 days.")
+    resp = "I found leave policies, but I couldn't verify your country from your employee record. For example, the USA policy gives 20 days."
+
+    r = devmode.diagnose(card, "what is my leave policy", resp)
+    report = devmode_report.build(card, question="what is my leave policy", response=resp)
+
+    assert r["stages"]["search"] == "ok"
+    assert r["stages"]["synthesis"] == "failed"
+    assert 'the answer hedged instead of answering. It said: "I found leave policies, but I couldn\'t verify your country from your employee record."' in report

@@ -17,6 +17,8 @@ from dataclasses import dataclass, field
 from decimal import ROUND_HALF_UP, Decimal
 from urllib.parse import urlsplit
 
+from ess_maker.doctor.report import _HEDGE
+
 __all__ = ["Card", "ExecEntry", "looks_like_devmode", "parse", "diagnose", "flatten_json", "split_header"]
 
 DEVMODE = "devmode"
@@ -1055,7 +1057,18 @@ def _apply_response(d: _Diagnosis, response: str) -> None:
         s["render"] = OK
 
     abstained = _ABSTAIN.search(_head(response, 600)) is not None
-    if abstained and s["search"] == OK and s["synthesis"] != FAILED:
+    hedged = _HEDGE.search(_head(response, 1500)) is not None
+    if hedged and s["search"] == OK and s["synthesis"] != FAILED:
+        s["synthesis"] = FAILED
+        d.happened.append("The response hedged: the data came back, but the agent said it couldn't verify a detail it needed.")
+        if not d.likely_cause or d.likely_cause.startswith("No failure"):
+            d.likely_cause = (
+                "The search returned data, but the agent couldn't tell which part applies to the employee, so it answered "
+                "generically. It was missing a detail such as the employee's country or job level."
+            )
+        d.step("Make sure the employee's profile values (country, job level, employment type) reach the agent, through the "
+               "user context topic or variables, and tell the instructions to use them instead of searching for them.")
+    elif abstained and s["search"] == OK and s["synthesis"] != FAILED:
         s["synthesis"] = FAILED
         d.happened.append("The response says it couldn't find the answer, even though the data came back.")
         if not d.likely_cause or d.likely_cause.startswith("No failure"):

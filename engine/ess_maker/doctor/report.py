@@ -48,6 +48,33 @@ _STOP = {"what", "which", "where", "when", "does", "about", "with", "from", "tha
 _REFUSAL = re.compile(r"unable to (assist|help|compare|provide|share|discuss|answer)|can['’]t (help|assist|compare|provide|share|discuss)|"
                       r"cannot (help|assist|compare|provide|share|discuss)|not able to (help|assist|compare|provide|share|discuss|answer)|"
                       r"couldn['’]t find|please contact the people team", re.I)
+_HEDGE = re.compile(r"couldn['’]t (verify|confirm|determine)|can['’]t (reliably|determine|confirm|verify)|"
+                    r"unable to (verify|confirm|determine)|without verified", re.I)
+_ABSTAIN_TEXT = re.compile(r"couldn['’]?t find|could not find|i (don['’]?t|do not) have (that|this|any) information|"
+                           r"unable to (find|provide)|no (relevant )?information (was )?found", re.I)
+
+
+def _sentence(text: str, m: re.Match) -> str:
+    start = max(text.rfind(c, 0, m.start()) for c in ".!?\n") + 1
+    ends = [i for i in (text.find(c, m.end()) for c in ".!?\n") if i != -1]
+    s = re.sub(r"\s+", " ", text[start:(min(ends) + 1) if ends else len(text)]).strip(" *")
+    return s if len(s) <= 220 else s[:217] + "…"
+
+
+def synthesis_reason(response: str) -> str:
+    """Why the answer stage is marked failed, quoting the sentence in the agent's reply that shows it; '' if none."""
+    head = (response or "")[:1500]
+    m = _HEDGE.search(head)
+    if m:
+        return (f'Why this stage is marked: the answer hedged instead of answering. It said: "{_sentence(head, m)}" '
+                "The search found documents, but the agent was missing a detail it needed to choose between them, most "
+                "often an employee profile value such as country or job level. The model isn't at fault: give it the "
+                "missing detail.")
+    m = _REFUSAL.search(head[:600]) or _ABSTAIN_TEXT.search(head[:600])
+    if m:
+        return (f'Why this stage is marked: the answer declined or said it found nothing. It said: "{_sentence(head, m)}" '
+                "If the search returned relevant documents, an instruction or content moderation stopped the answer.")
+    return ""
 
 
 def cited_sources(response: str) -> list[str]:

@@ -14,7 +14,7 @@ import json
 import re
 from datetime import datetime, timezone
 
-from ess_maker.doctor.report import RULE, _REFUSAL, instruction_check
+from ess_maker.doctor.report import RULE, _HEDGE, _REFUSAL, instruction_check, synthesis_reason
 from ess_maker.doctor.rules import PIPELINE_ORDER
 
 OK, FAILED, NOT_RUN, UNKNOWN = "ok", "failed", "not run", "unknown"
@@ -25,8 +25,6 @@ _TOOLISH = re.compile(r"Connector|Flow|Http|Plugin|Tool|Search|Prompt", re.I)
 _GUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.I)
 _EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
 _PROFILE_ASK = re.compile(r"employee profile|(country|office|location)[^,.;]{0,40}(employment type|job level|tenure|start date)", re.I)
-_HEDGE = re.compile(r"couldn['’]t (verify|confirm|determine)|can['’]t (reliably|determine|confirm|verify)|"
-                    r"unable to (verify|confirm|determine)|without verified", re.I)
 
 
 def _pretty(name: str) -> str:
@@ -527,7 +525,10 @@ def build(text: str, *, question: str = "", response: str = "", current=None, sn
     if d["consent"]:
         L.append("  The agent showed a sign-in / connection consent card.")
     L += _section("3 Synthesis & safety")
-    L.append("Answer states and content moderation results appear above when the transcript records them.")
+    reason = synthesis_reason(resp) if st.get("synthesis") == FAILED else ""
+    if reason and bf["empty_context_topics"] and "hedged" in reason:
+        reason += f' Here the missing details are the user context values the "{bf["empty_context_topics"][0]}" topic should set.'
+    L.append(reason or "Answer states and content moderation results appear above when the transcript records them.")
     L += _section("Recommended next steps")
     steps = steps or ["Compare the answer with the topics and knowledge that ran; the instructions shape the final answer."]
     if current is None:

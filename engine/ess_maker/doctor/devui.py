@@ -12,7 +12,7 @@ import re
 from datetime import datetime, timezone
 
 from ess_maker.doctor.agent_file import from_instructions
-from ess_maker.doctor.report import RULE, cited_sources, instruction_check, _REFUSAL
+from ess_maker.doctor.report import RULE, _HEDGE, cited_sources, instruction_check, _REFUSAL, synthesis_reason
 from ess_maker.doctor.rules import PIPELINE_ORDER
 
 _INSTR_MARK = re.compile(r"'s Instructions:\s*", re.I)
@@ -304,6 +304,12 @@ def _build_cea(parsed: dict, t: dict, current=None) -> str:
     elif check and check["followed"] is False:
         stage["3"] = "FAILED"
         why = "The instructions say to decline this question, but the agent answered it."
+    elif _HEDGE.search(resp[:1500]):
+        stage["3"] = "FAILED"
+        refused = True
+        why = (f"{agent} answered generically: it said it couldn't verify a detail it needed, such as the employee's country "
+               "or job level. That detail is set inside Copilot Studio (the user context topic or variables); the Copilot "
+               "Studio transcript or a test pane snapshot shows which one was blank.")
     elif refused:
         why = (f"{agent} declined or found no answer. The reason is inside Copilot Studio (topic, knowledge search or "
                "instruction), which this export doesn't record.")
@@ -357,6 +363,8 @@ def _build_cea(parsed: dict, t: dict, current=None) -> str:
         L.append("Cited in the answer: " + ", ".join(sources[:8]))
     L += _section("3 Synthesis & safety")
     L.append(f"Microsoft 365 Copilot safety classifiers run: {len(t['rai']['ran'])}; triggered: {', '.join(t['rai']['triggered']) or 'none'}")
+    if stage["3"] == "FAILED" and not t["rai"]["triggered"] and synthesis_reason(resp):
+        L.append(synthesis_reason(resp))
 
     L += _section("Recommended next steps")
     steps = []
@@ -408,6 +416,10 @@ def build(parsed: dict, turn_index: int = 0, *, current=None, findings: list | N
         stage["2"] = "not run"
     if t["rai"]["triggered"]:
         stage["3"] = "FAILED"; why = why or f"A safety classifier triggered ({', '.join(t['rai']['triggered'])})."
+    elif resp and stage["2"] == "ok" and _HEDGE.search(resp[:1500]):
+        stage["3"] = "FAILED"
+        why = why or ("The search found documents, but the agent couldn't tell which applies to the employee and answered "
+                      "generically: it was missing a detail such as the employee's country or job level.")
     else:
         stage["3"] = "ok" if resp else "no answer"
     stage["4"] = "ok" if resp else "no answer"
@@ -534,6 +546,8 @@ def build(parsed: dict, turn_index: int = 0, *, current=None, findings: list | N
              f"references: {t['citations'].get('references')}")
     L += _section("3 Synthesis & safety")
     L.append(f"Safety classifiers run: {len(t['rai']['ran'])}; triggered: {', '.join(t['rai']['triggered']) or 'none'}")
+    if stage.get("3") == "FAILED" and not t["rai"]["triggered"] and synthesis_reason(resp):
+        L.append(synthesis_reason(resp))
     if t["errors"]:
         L.append("Non-success steps: " + "; ".join(f"{e['service']} ({e['status']})" for e in t["errors"][:5]))
     lat = {k: v for k, v in t["latency"].items() if v is not None}
