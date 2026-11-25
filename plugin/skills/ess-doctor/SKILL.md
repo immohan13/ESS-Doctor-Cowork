@@ -36,7 +36,7 @@ For each step, follow that skill's own `SKILL.md` (its Run, Respond and Rules se
 | "It's too long", "shorten" | `instruction-check` | `condense` |
 | "Add a rule / don't talk about X / use this format / add a synonym" | `instruction-draft` | `draft` |
 | Evaluation results CSV, or two of them (before and after) | `eval-triage` | `eval-triage` / `eval-compare` |
-| Hub and child agents (snapshots, ALM exports, YAML) | `agent-audit` | `audit` |
+| Hub and child agents (snapshots, ALM exports, YAML) | `agent-audit` | `audit`; then the command behind the choice the maker replies with (`essdoctor-next`) |
 | "The agent is slow", "answers take a minute", QA slower than production | `agent-audit` on each environment's export, then `conversation-xray` on a slow conversation | `audit`, `xray` |
 | "It found the policy but won't give the number", "it says it can't provide figures" | `conversation-xray` on that answer (or `eval-triage` on the results), then `instruction-check` | `xray`, `check`, `fix` |
 | "The employee's name shows in Monitor transcripts", duplicate answers from a hub | `conversation-xray` on that conversation, then `agent-audit` on hub and children | `xray`, `audit` |

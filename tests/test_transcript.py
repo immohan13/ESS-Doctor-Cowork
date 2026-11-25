@@ -529,7 +529,41 @@ def test_agent_audit_finds_multi_agent_gaps():
     change = {g.rule_id: g.change for g in r["gaps"]}
     assert change["A17-MODERATION-BELOW-TEMPLATE"][0].startswith("- ") and change["A17-MODERATION-BELOW-TEMPLATE"][1].startswith("+ ")
     assert change["A16-HUB-DELEGATION-RULES"][0] == "+ # Delegation"
-    assert all(ln.startswith("- ") for ln in change["A04-DUP-KNOWLEDGE-IN-AGENT"])
+    dup = change["A04-DUP-KNOWLEDGE-IN-AGENT"]
+    assert dup[0].startswith("  Keep: ") and all(ln.startswith("- Delete: ") for ln in dup[1:])
+    gap = {g.rule_id: g for g in r["gaps"]}
+    assert gap["A13-HISTORY-TO-EVERY-CHILD"].optional and not gap["A13-HISTORY-TO-EVERY-CHILD"].change
+    assert gap["A17-MODERATION-BELOW-TEMPLATE"].optional and "+ Contoso Hub: Medium" in change["A17-MODERATION-BELOW-TEMPLATE"]
+    assert gap["A14-CHILD-DESCRIPTION-VAGUE"].proposals and "Answers employees' HR questions" in gap["A14-CHILD-DESCRIPTION-VAGUE"].proposals[0][2]
+
+    # The report ends with exact choices; the hub's choice adds the delegation section in the same fix.
+    import contextlib
+    import os
+    import re as _re
+    import shlex
+    import tempfile
+    from pathlib import Path
+    import essdoctor_cli
+
+    with tempfile.TemporaryDirectory() as d:
+        cwd = os.getcwd()
+        os.chdir(d)
+        try:
+            Path("hub.yml").write_text(hub, encoding="utf-8")
+            Path("hr.yml").write_text(child, encoding="utf-8")
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                assert essdoctor_cli.main(["audit", "hub.yml", "hr.yml"]) == 0
+            md = out.getvalue()
+            assert "### What to do next" in md and '**"fix Contoso Hub instructions"**' in md and "### Optional" in md
+            cmd = _re.search(r'essdoctor-next: "fix Contoso Hub instructions" = (.+?) -->', md).group(1)
+            assert "--append" in cmd
+            with contextlib.redirect_stdout(io.StringIO()):
+                assert essdoctor_cli.main(shlex.split(cmd) + ["--out", "f.txt", "--no-evalset"]) == 0
+            fixed = Path("f.txt").read_text(encoding="utf-8")
+        finally:
+            os.chdir(cwd)
+    assert "# Delegation" in fixed and "verbatim" in fixed
 
 
 def test_agent_audit_reads_alm_exports_with_config_values():
@@ -559,7 +593,7 @@ def test_agent_audit_reads_alm_exports_with_config_values():
             assert essdoctor_cli.main(["audit", str(z)]) == 0
 
     assert len(files) == 1 and "https://contoso.sharepoint.com/sites/hr" in files[0][1]
-    assert "| Contoso HR |" in out.getvalue() and "Content moderation is Low" in out.getvalue()
+    assert "| **Contoso HR** |" in out.getvalue() and "Content moderation is Low" in out.getvalue()
 
 
 def test_what_changed_uses_colored_diff_blocks():

@@ -447,9 +447,8 @@ def _pattern_rules(doc: AgentDoc) -> list[Finding]:
             "L6-EXHAUSTIVE-SEARCH", "medium", "L6 Tool-call impact", "search",
             "Instruction asks for several searches per question",
             [hit.no], hit.text.strip()[:240],
-            "Each knowledge search takes about 10–20 seconds on agents with many sources, and the searches run one "
-            "after another, so answers take a minute or more. In a customer agent, three searches per question took "
-            "62 seconds on average against 21 seconds with one scoped search, without better answers.",
+            "Each knowledge search adds several seconds on agents with many sources, and the searches run one after "
+            "another, so answers get slower without getting better.",
             "Search once with the employee's words, make at most one broader retry, and stop when the results cover "
             "every part of the question.",
             ["What is the holiday schedule?", "How does severance pay work after a position elimination?"], "",
@@ -664,8 +663,8 @@ def _rule_pipeline_gaps(doc: AgentDoc) -> list[Finding]:
             "Rewritten or translated queries drift from the words in the source documents, so the right document "
             "isn't returned and the answer is built on weaker evidence."
             + (" Adding device, OS, location or identity to every query changes the problem being searched for "
-               "('Outlook pane not rendering' became 'Outlook unable to load for <name> in <campus> on <laptop>'); in "
-               "a customer agent 70% of evaluations failed after a model upgrade because of this." if context_rewrite else ""),
+               "(for example 'Outlook pane not rendering' becomes 'Outlook unable to load for <name> on <laptop>'), "
+               "and results can change sharply when the model is upgraded." if context_rewrite else ""),
             "Search with the user's words. Add context (country, role, device, OS) only when the guidance differs by "
             "it, and keep reasoning context out of the search text.",
             ["What is the parental leave policy?", "My Outlook pane is not rendering"], "KI-005",

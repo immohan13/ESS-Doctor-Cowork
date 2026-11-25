@@ -1,7 +1,7 @@
 ```text
 Conversation Investigation (developer mode card) — conversation ID not shown
 Source: Microsoft 365 Copilot developer mode debug card, agent instructions
-Generated: 2026-11-25 22:08 UTC
+Generated: 2026-11-25 22:36 UTC
 
 ==============================================================
 USER QUESTION
@@ -78,4 +78,4 @@ WHAT THIS CARD CAN'T SEE
 - Steps inside Copilot Studio topics or flows after the action was called.
 ```
 
-<!-- essdoctor: version=2.11.3 skill=conversation-xray command=xray -->
+<!-- essdoctor: version=2.11.4 skill=conversation-xray command=xray -->

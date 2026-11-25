@@ -587,6 +587,27 @@ def cmd_fix(a) -> str:
     if r["tests"]:
         md += ["### Re-test with", ""] + [f"- {t}" for t in r["tests"][:10]] + [""]
     tests = list(r["tests"])
+    if getattr(a, "append", None):
+        add = [ln.rstrip() for ln in _text(_read(a.append)).splitlines() if ln.strip()]
+        cur = Path(a.out).read_text(encoding="utf-8")
+        have = {ln.strip() for ln in cur.splitlines()}
+        new = [ln for ln in add if ln.lstrip().startswith("#") or ln.strip() not in have]
+        body = [ln for ln in new if not ln.lstrip().startswith("#")]
+        if body:
+            text = cur.rstrip("\n") + "\n\n" + "\n".join(new) + "\n"
+            short = None
+            if studio_len(text) > DA_INSTRUCTION_LIMIT and not getattr(a, "no_condense", False):
+                text, short = _keep_condense(doc, text, base)
+            _write(a.out, text)
+            final = studio_len(text)
+            mark = "❌" if final > DA_INSTRUCTION_LIMIT else "⚠️" if final > LENGTH_TARGET else "✅"
+            head = next((ln.lstrip("# ").strip() for ln in new if ln.lstrip().startswith("#")), "audit")
+            md += [f"### Also added: {head} section", "",
+                   f"From the agent audit. Length now {mark} {final:,} of {DA_INSTRUCTION_LIMIT:,}"
+                   + (" (existing text tightened to fit; the added lines are word for word)" if short else "") + ".", "",
+                   "\n".join(_diff_block([f"+ {ln}" for ln in new])), ""]
+        else:
+            md += ["### Audit section already present", "", "The instructions already contain those lines.", ""]
     if getattr(a, "draft", None):
         fields = json.loads(_text(_read(a.draft)))
         fixed_doc = load_agent(a.out)
@@ -1232,7 +1253,8 @@ def cmd_audit(a) -> str:
             continue
         base = baseline(x.persona) if x.persona in TEMPLATE_MODERATION else None
         doc = from_instructions(x.instructions, x.name, "audit")
-        checks[id(x)] = [f for f in validate(doc, base) if f.origin != "template"]
+        # A full export (bot content) is a Copilot Studio agent: its template routes and grounds through topics.
+        checks[id(x)] = [f for f in validate(doc, base) if f.origin != "template" and not (x.full_export and _cea_skip(f))]
 
     md = ["## Agent audit", ""]
     if hub:
@@ -1244,49 +1266,101 @@ def cmd_audit(a) -> str:
            "| --- | --- | --- | --- | --- | --- | --- | --- |"]
     for x in sorted(agents, key=lambda x: (role.get(id(x), "Other") != "Hub", role.get(id(x), "Other") != "Child", x.name)):
         fs = checks.get(id(x), [])
-        sev = " · ".join(f"{_SEV[s]} {n}" for s in ("high", "medium") if (n := sum(1 for f in fs if f.severity == s)))
-        ks = f"{len(x.knowledge)}" + (" ⚠️" if len([k for k in x.knowledge if k.active]) > audit.KNOWLEDGE_FILTER_LIMIT else "")
-        md.append(f"| {_cell(x.name)} | {role.get(id(x), 'Other')} | {ks if x.full_export else '—'} | "
-                  f"{sum(1 for t in x.topics if t.active and t.searches) if x.full_export else '—'} | "
-                  f"{len(x.connected) or len(x.instruction_refs) or '—'} | "
-                  f"{studio_len(x.instructions):,} characters | {sev or ('✅ none' if x.instructions else '—')} | "
-                  f"{x.settings.get('contentModeration', '—')} |")
+        sev = " ? ".join(f"{_SEV[s]} {n}" for s in ("high", "medium") if (n := sum(1 for f in fs if f.severity == s)))
+        ks = f"{len(x.knowledge)}" + (" ??" if len([k for k in x.knowledge if k.active]) > audit.KNOWLEDGE_FILTER_LIMIT else "")
+        md.append(f"| **{_cell(x.name)}** | {role.get(id(x), 'Other')} | {ks if x.full_export else '?'} | "
+                  f"{sum(1 for t in x.topics if t.active and t.searches) if x.full_export else '?'} | "
+                  f"{len(x.connected) or len(x.instruction_refs) or '?'} | "
+                  f"{studio_len(x.instructions):,} characters | {sev or ('? none' if x.instructions else '?')} | "
+                  f"{x.settings.get('contentModeration', '?')} |")
     md.append("")
 
     real = [g for g in gaps if g.severity != "info"]
+    fixes = [g for g in real if not g.optional]
+    options = [g for g in real if g.optional]
     md += ["### Gaps across the agents", ""]
-    if not real:
-        md += ["✅ No cross-agent gaps found.", ""]
-    for i, g in enumerate(real, 1):
-        md += [f"{i}. {_SEV.get(g.severity, '')} **{_cell(g.title)}**  ",
-               f"   {', '.join(_cell(n) for n in g.agents)} · {g.severity}",
+    if not fixes:
+        md += ["? No cross-agent gaps found.", ""]
+    for i, g in enumerate(fixes + options, 1):
+        if i == len(fixes) + 1:
+            md += ["### Optional", "", "Choices to consider, not fixes; each has a trade-off.", ""]
+        md += [f"{i}. {_SEV.get(g.severity, '') if not g.optional else '?'} **{_cell(g.title)}**  ",
+               f"   {', '.join('**' + _cell(n) + '**' for n in g.agents)}" + ("" if g.optional else f" ? {g.severity}"),
                f"   - **Why it matters:** {_cell(g.detail)}",
-               f"   - **Fix:** {_cell(g.fix)}", ""]
+               f"   - **{'Option' if g.optional else 'Fix'}:** {_cell(g.fix)}", ""]
+        if g.proposals:
+            what = "Source" if "Knowledge" in g.where else "Agent"
+            md += [f"   | {what} | Now | Proposed description |", "   | --- | --- | --- |"]
+            md += [f"   | {_cell(n)} | {_clip(_cell(now), 90)} | {_cell(prop)} |" for n, now, prop in g.proposals[:12]]
+            if len(g.proposals) > 12:
+                md.append(f"   | ?and {len(g.proposals) - 12} more | | |")
+            md.append("")
         if g.change:
-            md += ["   **Proposed change:**", ""] + _indent("\n".join(_diff_block(g.change))) + [""]
+            md += [f"   **Proposed change**" + (f" (Copilot Studio > {_cell(g.where)})" if g.where else "") + ":", ""]
+            md += _indent("\n".join(_diff_block(g.change))) + [""]
 
     rows = [(x, checks[id(x)]) for x in agents if checks.get(id(x))]
     md += ["### Instruction check per agent", ""]
     if rows:
-        md += ["| Agent | Top findings |", "| --- | --- |"]
         for x, fs in rows:
-            top = sorted(fs, key=lambda f: {"high": 0, "medium": 1, "low": 2}.get(f.severity, 3))[:3]
-            md.append(f"| {_cell(x.name)} | " + "<br>".join(f"{_SEV.get(f.severity, '')} {_cell(f.title)} (line {_lines(f.to_dict())})"
-                                                          for f in top) + " |")
-        md += ["", "Run the instruction check on an agent for every finding and its fix.", ""]
+            top = sorted(fs, key=lambda f: {"high": 0, "medium": 1, "low": 2}.get(f.severity, 3))
+            sev = " ? ".join(f"{_SEV[s]} {n} {s}" for s in ("high", "medium", "low")
+                             if (n := sum(1 for f in fs if f.severity == s)))
+            names = "; ".join(_title(f.to_dict()) for f in top[:4]) + (f"; and {len(top) - 4} more" if len(top) > 4 else "")
+            md.append(f"- **{_cell(x.name)}** ? {sev}: {names}.")
+        md.append("")
     else:
-        md += ["✅ No instruction findings beyond the ESS template.", ""]
+        md += ["? No instruction findings beyond the ESS template.", ""]
 
     notes = [g for g in gaps if g.severity == "info"]
+    missing = [re.sub(r" wasn't uploaded$", "", g.title) for g in notes if g.rule_id == "A11-CHILD-NOT-PROVIDED"]
     partial = [x.name for x in agents if not x.full_export]
     if notes or partial:
         md += ["### Not checked", ""]
-        md += [f"- {_cell(g.title)}: {_cell(g.fix)}" for g in notes]
+        if missing:
+            md.append(f"- **{len(missing)} connected agent(s) weren't uploaded**, so their knowledge, topics and "
+                      "instructions weren't checked: " + ", ".join(f"**{_cell(n)}**" for n in missing)
+                      + ". Upload a test pane snapshot or export of each to include them.")
+        md += [f"- {_cell(g.title)}: {_cell(g.fix)}" for g in notes if g.rule_id != "A11-CHILD-NOT-PROVIDED"]
         if partial:
-            md.append(f"- {', '.join(_cell(n) for n in partial)}: the file has only the instructions, so knowledge sources, "
-                      "topics and settings weren't checked. Upload the agent's test pane snapshot for a full audit.")
+            md.append(f"- {', '.join('**' + _cell(n) + '**' for n in partial)}: the file has only the instructions, so "
+                      "knowledge sources, topics and settings weren't checked. Upload the agent's test pane snapshot for "
+                      "a full audit.")
         md.append("")
+
+    # Next step: one instruction fix per agent (its findings, recommended additions and any audit section), plus the
+    # Copilot Studio changes. The commands go in hidden comments for the planner.
+    src = {Path(p).name: p for p in a.agents}
+    deleg = next((g for g in gaps if g.rule_id == "A16-HUB-DELEGATION-RULES"), None)
+    choices, hidden = [], []
+    for x in agents:
+        fs = checks.get(id(x), [])
+        extra = deleg is not None and hub is x
+        if not (fs or extra) or x.file not in src:
+            continue
+        cmd = f'fix "{src[x.file]}" --rules recommended' + (" --agent-type cea" if x.full_export else "")
+        what = f"its {len(fs)} instruction finding(s) and the recommended additions" if fs else "the recommended additions"
+        if extra:
+            path = f"outputs/audit_{_norm_name(x.name)}_delegation.txt"
+            _write(path, "\n".join(ln[2:] for ln in deleg.change if ln.startswith("+ ")))
+            cmd += f' --append "{path}"'
+            what += ", plus the delegation section"
+        choices.append(f"- **\"fix {x.name} instructions\"**: {what}, fitted under 8,000 characters, with a test set.")
+        hidden.append(f"<!-- essdoctor-next: \"fix {x.name} instructions\" = {cmd} -->")
+    studio = [i for i, g in enumerate(fixes, 1) if g.rule_id != "A16-HUB-DELEGATION-RULES"]
+    if choices or studio:
+        md += ["### What to do next", ""]
+        if choices:
+            md += ["Reply with one of these to change the instructions:", ""] + choices + [""]
+        if studio:
+            md += [f"The other fixes ({', '.join(str(i) for i in studio[:12])}) are made in Copilot Studio, not in the "
+                   "instructions. Paste the proposed descriptions as a starting point and add the subjects each covers.", ""]
+        md += hidden
     return "\n".join(md)
+
+
+def _norm_name(s: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", (s or "").lower()).strip("_") or "agent"
 
 
 def cmd_eval_triage(a) -> str:
@@ -1620,6 +1694,7 @@ def main(argv: list[str] | None = None) -> int:
                                    "(default: all findings, no practices)")
     p.add_argument("--no-condense", action="store_true", help="Don't shorten automatically when the fixes go over the limit")
     p.add_argument("--draft", help="Also add a drafted rule (intake JSON, for example the one an X-ray saved) to the fixed text")
+    p.add_argument("--append", help="Also add a section the agent audit saved (for example the hub's delegation rules)")
     p.add_argument("--persona", **persona)
     p.add_argument("--agent-type", **agent_type)
     p.add_argument("--out", default="outputs/fixed_instructions.txt")

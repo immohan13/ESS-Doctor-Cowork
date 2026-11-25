@@ -308,7 +308,7 @@ _WITHHELD = re.compile(r"\bcan'?t (provide|state|give|share)\b[^.\n]{0,60}\b(num
 
 
 def _signals(seq: list, qi, asked: str, reply: str, happened: list, steps: list) -> None:
-    """Patterns seen in customer agents: the employee's name in a delegated task, duplicate replies, referrals to
+    """Known patterns: the employee's name in a delegated task, duplicate replies, referrals to
     call HR, and policy figures withheld by an over-strict grounding rule."""
     m = _NAME_TASK.match(asked or "")
     if m:
@@ -579,7 +579,7 @@ def diagnose(doc: dict, question: str = "") -> dict:
         if answer_s >= 30 or (turn_searches or 0) >= 2:
             happened.append(f"The answer took {answer_s:.0f} seconds" + (f" and {turn_searches} knowledge searches"
                                                                          if turn_searches and turn_searches > 1 else "") + ".")
-            steps.append("Speed up answers: " + ("several searches ran one after another, each adding 10–20 seconds. "
+            steps.append("Speed up answers: " + ("several searches ran one after another, each adding several seconds. "
                                                  if (turn_searches or 0) >= 2 else "")
                          + "Route the main HR subjects to a search-and-answer topic scoped to the primary knowledge source, "
                          "keep the instructions to one search with at most one retry, and reduce overlapping knowledge "

@@ -258,6 +258,9 @@ class Gap:
     owner: str = "Agent maker"
     # Concrete change as diff lines ("- old", "+ new") for settings, knowledge sources or instruction text.
     change: list[str] = field(default_factory=list)
+    where: str = ""  # where in Copilot Studio the change is made
+    proposals: list[tuple[str, str, str]] = field(default_factory=list)  # (item, current text, proposed text)
+    optional: bool = False  # a choice for the maker, not a fix
 
 
 def _child_for(hub: Agent, target: Connected | str, agents: list[Agent]) -> Agent | None:
@@ -271,9 +274,53 @@ def _setting(name: str, old: str, new: str) -> list[str]:
     return [f"- {name}: {old}", f"+ {name}: {new}"]
 
 
-def _removals(items, limit: int = 12) -> list[str]:
+def _removals(items, limit: int = 12, keep: str = "") -> list[str]:
+    """Knowledge sources to delete as diff lines ("- Delete: name"), with an unchanged "Keep:" line for context."""
     items = list(items)
-    return [f"- {x}" for x in items[:limit]] + ([f"@@ {len(items) - limit} more @@"] if len(items) > limit else [])
+    return ([f"  Keep: {keep}"] if keep else []) + [f"- Delete: {x}" for x in items[:limit]] + (
+        [f"@@ {len(items) - limit} more @@"] if len(items) > limit else [])
+
+
+_FILLER = re.compile(r"(?i)^(sharepoint|site|sites|page|pages|home|content|contents|documents?|library|knowledge|kb|"
+                     r"portal)$")
+_PREFIX = re.compile(r"(?i)^(hress|itess|ess|hr|it|workday|servicenow|snow|sf|r\d*|get|my|is|what)$")
+_HOUSEKEEPING = re.compile(r"(?i)system|admin|conversation (start|end)|fallback|greeting|on error|error|sign ?in|reset|"
+                           r"thank|goodbye|start over|multiple topics|logger|setup|user ?context|clarif|emotional|escalat|sensitive|privacy|guard")
+
+
+def _subject(text: str) -> str:
+    """Readable subject from a source or topic name: no file extensions, prefixes, filler or repeated words."""
+    s = re.sub(r"\.(aspx|pdf|docx?|pptx?)$", "", (text or "").strip(), flags=re.I)
+    s = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", s)  # CamelCase
+    s = re.sub(r"(?i)^(what is|what are|about|how to)\s+", "", s)
+    words, seen = [], set()
+    for w in re.split(r"[\s_\-\u2013|/]+", s):
+        if not w or w.isdigit() or _FILLER.match(w) or _PREFIX.match(w) or w.lower() in seen:
+            continue
+        seen.add(w.lower())
+        words.append(w)
+    return " ".join(words).strip()
+
+
+def _propose_source(k: Knowledge) -> str:
+    """A starting description for a knowledge source, from its name and location."""
+    subj = _subject(k.name) or _subject(k.target.rstrip("/").rsplit("/", 1)[-1]) or k.name
+    return f"Covers {subj}. Use for employee questions about {subj}."
+
+
+def _propose_child(name: str, kid, others: list[str]) -> str:
+    """A scope description for a connected agent: what it owns, from its own topics and knowledge, and what it doesn't."""
+    subjects: list[str] = []
+    if kid:
+        subjects = list(dict.fromkeys(s for s in (_subject(t.name) for t in kid.topics
+                                                       if t.active and not _HOUSEKEEPING.search(t.name)) if s))[:6]
+        if not subjects:
+            subjects = [s for s in (_subject(k.name) for k in kid.knowledge if k.active) if s][:6]
+    domain = "HR" if re.search(r"\bhr\b", name, re.I) else "IT" if re.search(r"\bit\b", name, re.I) else ""
+    head = f"Answers employees' {domain} questions and handles {domain} requests".replace("  ", " ")
+    body = (": " + ", ".join(subjects)) if subjects else " (name the subjects and actions it owns)"
+    rest = f". Doesn't handle {', '.join(others[:4])}: those have their own agents." if others else "."
+    return head + body + rest
 
 
 def _jaccard(a: str, b: str) -> float:
@@ -308,7 +355,7 @@ def audit(agents: list[Agent]) -> dict:
                         "round to each request, and the answer can come from the hub instead of the child.",
                         "Keep the hub a router: move the knowledge into the child agent that owns the domain, and route "
                         "by intent with the connected agents' descriptions.",
-                        change=_removals(f"{hub.name} knowledge source: {k.name}" for k in hub.knowledge)))
+                        change=_removals(k.name for k in hub.knowledge), where=f"{hub.name} > Knowledge"))
 
     # Same knowledge in the hub and a child, or in two children.
     owners: dict[str, list[str]] = {}
@@ -326,7 +373,8 @@ def audit(agents: list[Agent]) -> dict:
                             f"{label} is a knowledge source of {' and '.join(names)}. Both search it, so the model reads "
                             "the same content twice and the request waits for both.",
                             "Remove it from the hub and keep it only in the child that owns the domain.",
-                            change=_removals(f"{hub.name} knowledge source: {k.name}" for k in hub.knowledge if k.target == target)))
+                            change=_removals(k.name for k in hub.knowledge if k.target == target),
+                            where=f"{hub.name} > Knowledge"))
         else:
             gaps.append(Gap("A03-DUP-KNOWLEDGE-CHILDREN", "medium", names, "Two child agents search the same knowledge",
                             f"{label} is a knowledge source of {' and '.join(names)}. Overlapping knowledge makes the hub's "
@@ -347,7 +395,7 @@ def audit(agents: list[Agent]) -> dict:
                                 f"{', '.join(names)} point to the same {kind} ({target.replace('connector:', '')}). Each is "
                                 "searched separately, so the same results come back twice and double the content the model "
                                 "reads.", "Keep one knowledge source per connector or site and delete the copies.",
-                                change=_removals(f"{a.name} knowledge source: {n}" for n in names[1:])))
+                                change=_removals(names[1:], keep=names[0]), where=f"{a.name} > Knowledge"))
         # Site root plus pages under it.
         sites = [k for k in a.knowledge if k.target.startswith("http")]
         roots = {k.target for k in sites if re.fullmatch(r"https://[^/]+/sites/[^/]+", k.target)}
@@ -357,8 +405,10 @@ def audit(agents: list[Agent]) -> dict:
                 gaps.append(Gap("A05-OVERLAPPING-KNOWLEDGE", "medium", [a.name], "A whole site and pages inside it are both added",
                                 f"{root} is a knowledge source, and so are {len(under)} page(s) inside it "
                                 f"({', '.join(under[:3])}{'…' if len(under) > 3 else ''}). The pages are searched twice.",
-                                "Keep the site and delete the page-level sources, or keep the pages and remove the site.",
-                                change=_removals(f"{a.name} knowledge source: {n}" for n in under)))
+                                "Keep the whole-site source and delete the page sources inside it: the site search "
+                                "already covers those pages. (Or, if you want only those pages searched, delete the site "
+                                "source instead.)",
+                                change=_removals(under, keep=f"{root} (the whole site)"), where=f"{a.name} > Knowledge"))
         # Many sources: filtered by description.
         active = [k for k in a.knowledge if k.active]
         generic = [k for k in active if not k.description.strip() or _GENERIC_KS.match(k.description.strip())]
@@ -377,12 +427,18 @@ def audit(agents: list[Agent]) -> dict:
                             "extra selection step." + (f" {merge} page-level source(s) share a site with another source." if merge else ""),
                             "Consolidate to one source per SharePoint site" + (f" (about {len(active) - merge} sources)" if merge else "")
                             + ", write a description for each that names the subjects it covers, and scope sensitive or "
-                            "high-volume subjects to a topic that searches only the source that owns them."))
+                            "high-volume subjects to a topic that searches only the source that owns them. Proposed "
+                            "descriptions to start from are below; add the main subjects each source covers.",
+                            where=f"{a.name} > Knowledge > each source > Description",
+                            proposals=[(k.name, k.description.strip() or "(none)", _propose_source(k)) for k in generic]))
         elif generic and len(active) > 3:
             gaps.append(Gap("A07-GENERIC-KNOWLEDGE-DESCRIPTION", "low", [a.name], "Knowledge sources have generic descriptions",
                             f"{len(generic)} of {len(active)} knowledge sources have no description or the generated one "
                             "(\"This knowledge source provides information found in …\"). Descriptions are the main signal "
-                            "for choosing a source.", "Describe the subjects each source covers, in employees' words."))
+                            "for choosing a source.", "Describe the subjects each source covers, in employees' words. "
+                            "Proposed descriptions to start from are below.",
+                            where=f"{a.name} > Knowledge > each source > Description",
+                            proposals=[(k.name, k.description.strip() or "(none)", _propose_source(k)) for k in generic]))
         off = [k.name for k in a.knowledge if k.active and not k.auto_search]
         if off:
             gaps.append(Gap("A08-KNOWLEDGE-NOT-SEARCHED", "info", [a.name], "Knowledge sources the orchestrator won't search",
@@ -413,15 +469,15 @@ def audit(agents: list[Agent]) -> dict:
                                 change=_setting(f"{kid.name} > Let other agents connect to and use this one", "Off", "On")))
         with_history = [c for c in hub.connected if c.active and c.history.lower() == "conversationhistory"]
         if with_history:
-            gaps.append(Gap("A13-HISTORY-TO-EVERY-CHILD", "medium", [hub.name],
-                            f"Full conversation history is passed to {len(with_history)} of {len(hub.connected)} connected agents",
+            gaps.append(Gap("A13-HISTORY-TO-EVERY-CHILD", "low", [hub.name],
+                            f"Conversation history is passed to {len(with_history)} of {len(hub.connected)} connected agents",
                             "\"Pass conversation history to this agent\" is on for " + ", ".join(c.name for c in with_history[:5])
-                            + ". Each child gets the whole conversation, so it reads more and can act on requests the hub "
-                            "already handled, which causes duplicate or repeated answers.",
-                            "Turn the setting off for children that only need the current task, and have the hub pass the "
-                            "employee's question verbatim as the task.",
-                            change=[ln for c in with_history
-                                    for ln in _setting(f"{hub.name} > {c.name} > Pass conversation history to this agent", "On", "Off")]))
+                            + ". Keep it on for agents that answer follow-up questions (\"and for part-time staff?\"), so "
+                            "they keep the context. Each child then reads the whole conversation, which adds time and can make "
+                            "it repeat something the hub already handled.",
+                            "Optional: turn it off only for agents that answer one self-contained request at a time (a lookup "
+                            "or a single action). For those, the hub must pass a complete task: the question plus any detail "
+                            "from earlier turns it depends on.", optional=True))
         descs = [(c.name, c.description) for c in hub.connected if c.active and c.description]
         if not descs:
             # No connected-agent definitions in the export: the hub sees each child's own description by default.
@@ -432,7 +488,11 @@ def audit(agents: list[Agent]) -> dict:
                             "Connected agent descriptions read like marketing text",
                             f"{', '.join(vague)}: the description is the main signal the hub uses to route, and promotional "
                             "wording (\"Get personalized support…\") doesn't say which requests belong to the agent.",
-                            "Rewrite each description as scope: the subjects and actions the agent owns, and what it doesn't do."))
+                            "Rewrite each description as scope: the subjects and actions the agent owns, and what it "
+                            "doesn't do. Proposed descriptions, built from each agent's own topics, are below.",
+                            where=f"{hub.name} > Agents > each connected agent > Description",
+                            proposals=[(n, d, _propose_child(n, next((k for lbl, k, _ in children if lbl == n), None),
+                                                             [o for o, _ in descs if o != n])) for n, d in descs if n in vague]))
         for i in range(len(descs)):
             for j in range(i + 1, len(descs)):
                 if _jaccard(descs[i][1], descs[j][1]) >= 0.45:
@@ -452,7 +512,8 @@ def audit(agents: list[Agent]) -> dict:
             gaps.append(Gap("A16-HUB-DELEGATION-RULES", "medium", [hub.name], "Hub instructions miss delegation rules",
                             "The hub instructions don't say to " + "; or to ".join(missing) + ".",
                             "Add a short delegation section: " + " ".join(f"- {m[:1].upper() + m[1:]}." for m in missing),
-                            change=["+ # Delegation"] + [f"+ - {m[:1].upper() + m[1:]}." for m in missing]))
+                            change=["+ # Delegation"] + [f"+ - {m[:1].upper() + m[1:]}." for m in missing],
+                            where=f"{hub.name} > Overview > Instructions"))
 
     # Latency: legacy Workday user context, unscoped search over many sources, environments that differ.
     for a in agents:
@@ -463,8 +524,7 @@ def audit(agents: list[Agent]) -> dict:
             gaps.append(Gap("A19-WORKDAY-LEGACY-USER-CONTEXT", "high", [a.name],
                             "Workday user context uses the legacy setup",
                             f"\"{legacy[0].name}\" looks up the employee with the legacy ISU + RaaS report on every new "
-                            "session. A customer agent with this setup measured 7–10 seconds before the first answer of each "
-                            "session." + (f" The V2 topic \"{v2.name}\" is in the agent but not the one in use." if v2 else ""),
+                            "session, so every new session waits several seconds before its first answer." + (f" The V2 topic \"{v2.name}\" is in the agent but not the one in use." if v2 else ""),
                             "Follow Microsoft's upgrade to the simplified Workday setup "
                             "(https://learn.microsoft.com/copilot/employee-self-service/workday-upgrade-to-simplified): it "
                             "replaces the lookup with one /workers/me call per session, cached for the session, and switches "
@@ -475,19 +535,21 @@ def audit(agents: list[Agent]) -> dict:
         search_topics = [t for t in a.topics if t.general_search]
         if a.topics and not a.is_hub and len(active) > 10 and not search_topics:
             connectors = [k.name for k in active if k.target.startswith("connector:")]
+            primary = connectors[0] if connectors else "your main knowledge source"
+            dom = a.persona.upper() or "HR"
             gaps.append(Gap("A20-NO-SCOPED-SEARCH-TOPIC", "high" if len(active) > KNOWLEDGE_FILTER_LIMIT else "medium",
-                            [a.name], "No dedicated search-and-answer topic for the main knowledge source",
-                            f"Every question is answered by generative orchestration across {len(active)} knowledge "
-                            "sources, which often searches two or three times before answering. In a customer agent each "
-                            "search took 10–20 seconds: answers averaged 62 seconds and drew on up to 39 documents, against "
-                            "21 seconds with one search-and-answer topic scoped to the HR knowledge connector.",
-                            "Add a topic whose description covers the main HR subjects, with a Generative answers "
-                            "(search and summarize) node scoped to the primary source"
-                            + (f" ({connectors[0]})" if connectors else "")
-                            + ". Widen the scope only if evaluations show content is missing, and compare answer quality "
-                            "as well as speed: faster isn't always as complete.",
-                            change=["+ Topic: <HR> search and answer (Generative answers node, knowledge: "
-                                    + (connectors[0] if connectors else "<primary source>") + " only)"]))
+                            [a.name], "No topic that answers from the main knowledge source",
+                            f"Every question is answered by generative orchestration choosing among {len(active)} knowledge "
+                            "sources, which often searches two or three times before answering. Each search adds several "
+                            "seconds and more documents to read. A topic that searches only the main source answers with "
+                            "one search.",
+                            f"Add one topic for general {dom} questions that searches only {primary}. Widen it only if evaluations show content is missing, and compare answer quality as well as speed.",
+                            where=f"{a.name} > Topics",
+                            change=["+ Topics > Add a topic > From blank",
+                                    f"+ Description: the main {dom} subjects employees ask about "
+                                    "(benefits, pay, leave, holidays, policies)",
+                                    "+ Add a node: Create generative answers",
+                                    f"+ Knowledge: only {primary}"]))
 
     def base_name(x: Agent) -> str:
         n = re.sub(r"(?i)[\s_\-\(\[]*(qa|uat|test|dev|sandbox|prod|production|preprod|stage|staging)[\)\]]?\b", " ", x.name)
@@ -517,13 +579,12 @@ def audit(agents: list[Agent]) -> dict:
         gaps.append(Gap("A21-ENVIRONMENT-DRIFT", "medium", [x.name, y.name],
                         "The two environments of this agent are set up differently",
                         "; ".join(parts) + ". Latency and answer quality measured in one environment don't carry over "
-                        "to the other: in a customer agent, a search topic missing from QA made answers three times "
-                        "slower there than in production.",
+                        "to the other; for example, a search topic missing from one environment " "makes its answers much slower.",
                         "Make the environments match (deploy the same solution version), then compare latency and "
                         "answer quality with the same users and questions.",
                         change=[f"+ {x.name}: add topic {n}" for n in only_y[:6]] + [f"+ {y.name}: add topic {n}" for n in only_x[:6]]))
 
-    # Configuration patterns seen in customer agents: routing tables as knowledge, session state in child agents,
+    # Configuration patterns: routing tables as knowledge, session state in child agents,
     # descriptions that contradict gates, prescriptive instruction volume, inline allowlists.
     kid_ids = {id(k) for k in kids}
     for a in agents:
@@ -533,11 +594,10 @@ def audit(agents: list[Agent]) -> dict:
             gaps.append(Gap("A22-ROUTING-TABLE-KNOWLEDGE", "high", [a.name], "A routing table is used as a knowledge source",
                             f"{', '.join(k.name for k in tables[:3])} lists topics and which agent owns them, and the agent "
                             "has to search it to decide where to send each question. That adds a knowledge search to every "
-                            "question: in a customer agent single-turn answers took 19–37 seconds, some timed out, and the "
-                            "same sources on the hub doubled the searches and produced duplicate or empty replies.",
+                            "question, which slows answers and can time out; the same " "sources on the hub double the searches and can produce duplicate or empty replies.",
                             "Route with the connected agents' and topics' descriptions (name the subjects each owns), and "
                             "remove the routing table from knowledge. Keep each knowledge source on one agent only.",
-                            change=_removals(f"{a.name} knowledge source: {k.name}" for k in tables)))
+                            change=_removals(k.name for k in tables), where=f"{a.name} > Knowledge"))
         if id(a) in kid_ids or a.connectable:
             counted = [(t.name, c) for t in a.topics if t.active for c in t.counters]
             if counted:
@@ -577,15 +637,19 @@ def audit(agents: list[Agent]) -> dict:
                             "reference it in the condition."))
 
     # Settings drift from the ESS templates and between hub and children.
-    for a in agents:
-        lvl = a.settings.get("contentModeration")
-        want = TEMPLATE_MODERATION.get(a.persona)
-        if lvl and want and _LEVEL.get(lvl.lower(), 0) < _LEVEL[want.lower()]:
-            gaps.append(Gap("A17-MODERATION-BELOW-TEMPLATE", "medium", [a.name], f"Content moderation is {lvl}",
-                            f"The ESS {a.persona.upper()} template uses {want}. A lower level lets more sensitive content "
-                            "through; a mix of levels across agents makes safety behavior depend on which agent answers.",
-                            f"Set content moderation back to {want}, unless a reviewed exception applies.",
-                            change=_setting(f"{a.name} > Content moderation", lvl, want)))
+    levels = {a.name: a.settings.get("contentModeration") for a in agents if a.settings.get("contentModeration")}
+    low = [n for n, lvl in levels.items() if _LEVEL.get(lvl.lower(), 0) < _LEVEL["medium"]]
+    if low or len({v.lower() for v in levels.values()}) > 1:
+        gaps.append(Gap("A17-MODERATION-BELOW-TEMPLATE", "low", list(levels),
+                        "Content moderation " + ("is Low on " + ", ".join(low) if low else "differs between agents"),
+                        "Levels: " + ", ".join(f"{n} {v}" for n, v in levels.items()) + ". Low lets more sensitive content "
+                        "through, and different levels make safety behavior depend on which agent answers. Higher levels "
+                        "also block more answers as filtered content.",
+                        "Optional: use Medium on the hub and every child. Run the evaluation test set before and after the "
+                        "change to check it doesn't block answers employees need.",
+                        where="each agent > Settings > Generative AI > Content moderation",
+                        change=[ln for n, v in levels.items() if v.lower() != "medium" for ln in _setting(n, v, "Medium")],
+                        optional=True))
     if hub and kids:
         opt = {a.name: a.settings.get("optInUseLatestModels") for a in [hub] + kids if "optInUseLatestModels" in a.settings}
         if len(set(opt.values())) > 1:

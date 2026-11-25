@@ -36,16 +36,17 @@ Across the agents:
 | The same knowledge source on the hub and a child, or on two children | The model reads the same content twice; overlapping knowledge blurs routing |
 | The same connector or site added twice in one agent | Each copy is searched separately, so the same results come back twice |
 | A whole SharePoint site plus pages inside it | The pages are searched twice |
-| More than 25 knowledge sources, or generic descriptions | Above 25, generative orchestration filters sources by description; generic ones get filtered out |
-| Connected agents receive the full conversation history | More to read on every hand-off, and children can act on requests the hub already handled |
-| Connected agent descriptions read like marketing text, or overlap | The description is the main routing signal |
+| More than 25 knowledge sources, or generic descriptions (with proposed descriptions) | Above 25, generative orchestration filters sources by description; generic ones get filtered out |
+| Connected agents receive the full conversation history (optional) | A trade-off: children keep the context for follow-up questions, but read more on every hand-off. Only suggested for agents that answer one self-contained request at a time |
+| Connected agent descriptions read like marketing text, or overlap (with proposed scope descriptions from each agent's topics) | The description is the main routing signal |
 | Hub instructions miss delegation rules | Pass the question verbatim, deliver the child's answer once, don't answer domain questions in the hub |
 | A child the hub can't call (connection setting off) | The hand-off fails |
-| Content moderation below the ESS template, model settings that differ, general knowledge or web search on | Safety and answers depend on which agent responds |
-| Workday user context still on the legacy ISU + RaaS topic | Every new session waits 7–10 seconds before the first answer; the simplified setup makes one `/workers/me` call per session |
-| More than 10 knowledge sources and no general search-and-answer topic scoped to the main source | Generative orchestration searches two or three times per question, 10–20 seconds each |
+| Model settings that differ, general knowledge or web search on | Safety and answers depend on which agent responds |
+| Content moderation Low, or different across agents (optional) | Suggests Medium everywhere; higher levels can block more answers, so test with the evaluation set first |
+| Workday user context still on the legacy ISU + RaaS topic | Every new session waits several seconds before the first answer; the simplified setup makes one `/workers/me` call per session |
+| More than 10 knowledge sources and no general search-and-answer topic scoped to the main source | Generative orchestration can search two or three times per question, each search adding several seconds |
 | Two exports of the same agent (for example QA and production) with different topics or knowledge | Latency and quality measured in one environment don't carry over to the other |
-| A routing table or topic map used as a knowledge source | Every question costs an extra search before it's routed: single answers took 19–37 seconds in a customer agent, and the same sources on the hub doubled searches and produced duplicate or empty replies |
+| A routing table or topic map used as a knowledge source | Every question costs an extra search before it's routed, so answers slow down and can time out; the same sources on the hub double the searches and can produce duplicate or empty replies |
 | A child agent's topic counts attempts with a global variable | Variables don't carry over between hub calls, so the count resets and the topic always acts like the first request |
 | A topic description that excludes an audience its condition requires (for example "excluding US" but continues only for US) | The description routes questions, so the right ones never reach the topic |
 | More than about 30K characters of instructions across the agent and its topic prompts | Hard to maintain as policies and models change, slower, and less consistent; keep the safeguards and move the rest into an evaluation set |
@@ -57,13 +58,10 @@ When the maker says the agent is slow, ask for an export of each environment the
 
 ## Respond
 
-1. Show the report as returned, as Markdown (not in a code block), so its tables and numbered gaps render. Gaps with a concrete change have a **Proposed change** `diff` block: settings as a `-` old value and `+` new value, knowledge sources to delete as `-` lines, and instruction text to add as `+` lines. Keep those blocks exactly as returned, including the `diff` language tag, so removed lines show in red and added lines in green.
-2. Then add **What matters most** in at most three numbered points, ordered by impact on speed and answer quality: name the agent, the gap and the fix. Knowledge duplication and hub searching come before descriptions and settings.
-3. Then one **Next step** line offering to:
-   - run `instruction-check` (with `fix`) on the agent with the most instruction findings;
-   - write the hub's delegation section or the child descriptions as text the maker can paste (draft them, show them as a `diff` block with `+` lines, then run `check` on the hub instructions with the new section);
-   - list the knowledge sources to remove or merge, one line each.
-4. Don't change any agent yourself. Knowledge sources, descriptions and the "Pass conversation history to this agent" setting are changed in Copilot Studio by the maker.
+1. Show the report as returned, as Markdown (not in a code block), so its tables and numbered gaps render. Keep each **Proposed change** `diff` block exactly as returned, including the `diff` language tag: settings as a `-` old value and `+` new value, knowledge sources as `Keep:` and `- Delete:` lines, topic steps and instruction text as `+` lines. Each block says where in Copilot Studio the change is made. Keep the **Proposed description** tables: they are starting points the maker pastes and refines.
+2. Then add **What matters most** in at most three numbered points, ordered by impact on speed and answer quality: name the agent in bold, the gap number and the fix. Knowledge duplication and hub searching come before descriptions and settings. Gaps under **Optional** are trade-offs, not fixes: mention them only if the maker asks, and never present them as required.
+3. End with the report's **What to do next** choices, as they are, and ask the maker to reply with one. Don't leave the next step open-ended and don't offer other choices. Each choice has a hidden `<!-- essdoctor-next: "<choice>" = <command> -->` line: when the maker replies with that choice, run exactly that command (`python3 scripts/essdoctor.py <command>`) and follow the `instruction-check` skill's "Applying a fix" for the result. It applies the agent's instruction findings, the recommended additions and, for the hub, the delegation section the audit proposed, in one file.
+4. Don't change any agent yourself. Knowledge sources, descriptions, topics and settings are changed in Copilot Studio by the maker; the report numbers which gaps those are.
 
 ## Rules
 
