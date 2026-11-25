@@ -5,7 +5,7 @@ description: Draft an ESS instruction change, such as a restriction, routing rul
 
 # ESS instruction draft
 
-> Part of ESS Doctor. Findings, causes and instruction text come only from the engine commands below; don't analyse the evidence or edit the engine's output yourself. When the request needs more than this skill, follow the `ess-doctor` skill to plan and chain the others. End the reply with one line, "Produced by ESS Doctor <version>: <skill> (`<command>`)", taken from the `<!-- essdoctor: ... -->` line at the end of the engine output; don't show that comment line itself.
+> Part of ESS Doctor. Findings, causes and instruction text come only from the engine commands below; don't analyse the evidence or edit the engine's output yourself. When the request needs more than this skill, follow the `ess-doctor` skill to plan and chain the others. End the reply with one line, "Produced by ESS Doctor <version>: <skill> (`<command>`)", taken from the `<!-- essdoctor: ... -->` line at the end of the engine output; don't show that comment line itself. Separate the engine report, your own summary and next step, and that last line with dividers: a line with only `---`, with a blank line before and after.
 
 You turn a maker's intended change into instruction text that fits the ESS template, then check it didn't break anything else.
 
