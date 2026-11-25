@@ -299,6 +299,45 @@ def _ts(a: dict) -> float | None:
     return None
 
 
+_NAME_TASK = re.compile(r"^\s*(?:Help|Assist|Support|For)\s+([A-Z][a-z'\-]+(?:\s+[A-Z][a-z'\-]+){1,2})\b(?=\s+(?:to|with|set|reset|get|find|"
+                        r"understand|update|in|on|change|access|request|open|create|book|fix)\b)")
+_CONTACT_HR = re.compile(r"\b(call|phone|contact|reach out to|email)\b[^.\n]{0,40}\b(HR|People team|HR Services|AskHR|HR Service Center)\b"
+                         r"|\+?\d{1,3}[\s.-]?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}\b", re.I)
+_WITHHELD = re.compile(r"\bcan'?t (provide|state|give|share)\b[^.\n]{0,60}\b(number|figure|amount|allowance|entitlement|duration)\b"
+                       r"|\b(entitlement|duration|benefit amount|reimbursement|leave-entitlement|pay)\b[^.\n]{0,20}\bfigures?\b[^.\n]{0,40}\bcan'?t\b", re.I)
+
+
+def _signals(seq: list, qi, asked: str, reply: str, happened: list, steps: list) -> None:
+    """Patterns seen in customer agents: the employee's name in a delegated task, duplicate replies, referrals to
+    call HR, and policy figures withheld by an over-strict grounding rule."""
+    m = _NAME_TASK.match(asked or "")
+    if m:
+        happened.append(f"The task this agent received starts with the employee's name (\"{m.group(0).strip()}…\"): the hub "
+                        "added it when delegating, so it shows in Copilot Studio Monitor transcripts.")
+        steps.append("In the hub instructions, pass the employee's question to the child agent unchanged (one line: "
+                     "\"Pass the user's question verbatim; don't add their name or other details\"). Identity comes from "
+                     "the signed-in user, not the task text. Don't add a long privacy section; test the hub after the change.")
+    if qi is not None:
+        nxt = next((i for i in range(qi + 1, len(seq)) if seq[i][0] == "user"), len(seq))
+        replies = [re.sub(r"\s+", " ", t).strip().lower() for r, t in seq[qi + 1:nxt] if r == "bot"]
+        dup = [r for i, r in enumerate(replies) if len(r) > 40 and r in replies[:i]]
+        if dup:
+            happened.append("The agent sent the same answer twice in this turn.")
+            steps.append("Duplicate answers usually mean the hub and a child both answered: make the hub deliver the "
+                         "child's answer once and not answer domain questions itself, and keep each knowledge source on "
+                         "one agent (run the agent audit).")
+    if reply and _CONTACT_HR.search(reply[:2000]):
+        happened.append("The answer tells the employee to contact HR or gives a phone number.")
+        steps.append("If employees using the agent shouldn't be sent to HR by phone (the articles may say so because they "
+                     "predate the agent), add a rule: offer the agent's own help or case creation first, and give HR contact "
+                     "details only when the employee asks how to reach HR. Leave the articles unchanged for people "
+                     "without the agent.")
+    if reply and _WITHHELD.search(reply[:2000]):
+        happened.append("The agent found the policy but said it can't give the figure.")
+        steps.append("An instruction blocks figures even when a retrieved source states them. Run the instruction check: "
+                     "the 'grounding rule also blocks figures the sources state' finding has the fix.")
+
+
 def diagnose(doc: dict, question: str = "") -> dict:
     acts = _activities_of(doc)
     users, bots = [], []
@@ -518,6 +557,11 @@ def diagnose(doc: dict, question: str = "") -> dict:
                      "plus only context that changes the answer (for example country), never names, emails or IDs.")
 
     # Latency: question to answer, searches in that turn, and session start.
+    _signals(seq, qi, asked, reply, happened, steps)
+    if reply and _WITHHELD.search(reply[:2000]) and (cause.startswith("No failure") or stages["synthesis"] != FAILED):
+        stages["synthesis"] = FAILED
+        cause = ("The agent found the policy but an instruction stopped it from stating the figure the policy gives, so "
+                 "the employee was sent elsewhere for an answer the knowledge contains.")
     answer_s = turn_searches = start_s = None
     if qi is not None and seq_t[qi] is not None:
         nxt = next((i for i in range(qi + 1, len(seq)) if seq[i][0] == "user"), len(seq))

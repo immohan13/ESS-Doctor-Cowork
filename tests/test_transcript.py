@@ -782,3 +782,72 @@ def test_xray_reports_slow_answers_and_search_rounds():
     assert d["details"]["answerTime"].startswith("42.5 s (2 knowledge search")
     assert any("took 42 seconds and 2 knowledge searches" in h for h in d["happened"])
     assert any(s.startswith("Speed up answers") for s in d["next_steps"])
+
+
+def test_customer_tuning_patterns_in_instruction_rules_and_fixes():
+    from ess_maker.doctor.agent_file import from_instructions
+    from ess_maker.doctor.fixes import fix
+    from ess_maker.doctor.rules import validate
+
+    src = ("# Core identity\nYou are an HR assistant.\n# Context handling\n"
+           "- Use the employee's cost center, role and location to contextualize searches and responses.\n"
+           "- Before searching, call the Device Context tool to get the device and OS.\n"
+           "- Never state statutory thresholds, durations, entitlements or amounts, even if retrieved.\n"
+           "- Never use endings such as \"Want me to\", \"Would you like\", \"Shall I\" or \"Let me know\".\n"
+           "- When a request is broad, ask a clarifying question: ask whether it is an office printer, a home printer, "
+           "or a network printer.\n"
+           "- Report which steps you followed at the end of each answer.\n"
+           "- Do not use the words employee, worker, staff or associate.\n")
+    doc = from_instructions(src, "t")
+    ids = {f.rule_id for f in validate(doc)}
+    new = {"L5-CONTEXT-IN-SEARCH", "L6-PROSE-TOOL-ORDER", "L3-OVERHARDENED-FIGURES", "L8-PHRASE-BLACKLIST",
+           "L4-GENERIC-CLARIFY-OPTIONS", "L0-SELF-REPORTING", "L8-WORD-BAN"}
+    assert new <= ids
+    r = fix(doc, None, sorted(new))
+    out = r["new_instructions"]
+    assert "to contextualize responses." in out and "contextualize searches" not in out
+    assert "state figures exactly as a retrieved source states them" in out and "even if retrieved" not in out
+    assert "only when a configured tool or topic supports it" in out and "Want me to" not in out
+    assert "offer only the options the knowledge search returned" in out
+    assert {m["rule_id"] for m in r["manual"]} >= {"L6-PROSE-TOOL-ORDER", "L0-SELF-REPORTING", "L8-WORD-BAN"}
+
+
+def test_customer_tuning_patterns_in_agent_audit():
+    from ess_maker.doctor import audit
+
+    codes = ", ".join(f"\"C{i:02d}\"" for i in range(22))
+    yml = ("kind: BotDefinition\nentity:\n  displayName: Contoso IT\n  schemaName: cr_ContosoIT\n  isAgentConnectable: true\n"
+           "components:\n"
+           "  - kind: KnowledgeSourceComponent\n    displayName: Topic routing table\n    schemaName: ks1\n    configuration:\n"
+           "      source:\n        kind: SharePointSearchSource\n        site: https://contoso.sharepoint.com/sites/routing\n"
+           "  - kind: DialogComponent\n    displayName: Ticket escalation\n    schemaName: cr.topic.Escalate\n"
+           "    modelDescription: Escalates IT issues for all employees, excluding US employees.\n"
+           "    dialog:\n      beginDialog:\n        kind: OnRecognizedIntent\n      actions:\n"
+           "        - kind: SetVariable\n          variable: Global.TryCount\n          value: =Global.TryCount + 1\n"
+           "        - kind: ConditionGroup\n          conditions:\n            - id: c1\n"
+           "              condition: =Global.ESS_UserContext_Country = \"USA\"\n"
+           f"            - id: c2\n              condition: =Global.CompanyCode in [{codes}]\n")
+    ids = {g.rule_id for g in audit.audit([audit.parse(yml, "it")])["gaps"]}
+    assert {"A22-ROUTING-TABLE-KNOWLEDGE", "A23-SESSION-STATE-IN-CHILD", "A24-DESCRIPTION-CONTRADICTS-CONDITION",
+            "A26-INLINE-ALLOWLIST"} <= ids
+
+
+def test_xray_sorry_and_eval_flag_withheld_figures_and_hr_referrals():
+    from ess_maker.doctor import evaltriage
+    from ess_maker.doctor.agent_file import from_instructions
+
+    withheld = "Because this is an entitlement figure, I can't provide the number. Please contact the People team."
+    acts = [{"type": "message", "from": {"role": 1}, "text": "Help Jane Doe to find home-move leave days"},
+            {"type": "message", "from": {"role": 0}, "text": withheld}]
+    d = transcript.diagnose({"activities": acts})
+    said = " ".join(d["happened"])
+    assert "starts with the employee's name" in said and "can't give the figure" in said and "contact HR" in said
+
+    r = sorry.triage([("transcript", "t", d)])
+    assert r["counts"]["figure-withheld"] == 1
+
+    agent = from_instructions("# Grounding\n- Never state entitlements, even if retrieved.\n", "t")
+    row = {"question": "What is the relocation allowance for a home move?", "expected": "Up to 2 days", "actual": withheld,
+           "result": "Fail", "explanation": "", "conversation_id": ""}
+    t = evaltriage.triage_row(row, agent)
+    assert t.cause == "instruction" and "stating the figure" in t.headline

@@ -246,7 +246,8 @@ def _evalset(a, tests: list, beside: str = "") -> list[str]:
     _write(path, evalset.to_csv(rows))
     own = min(len(rows), len(evalset.rows_for(tests, include_golden=False)))
     return ["### Evaluation test set", "",
-            f"`{path}` has {len(rows)} questions: {own} for this change and {len(rows) - own} ESS regression questions, "
+            f"`{path}` has {len(rows)} questions: {own} for this change and {len(rows) - own} ESS regression and "
+            "grounding-hardening questions, "
             "each with the expected response. " + evalset.IMPORT_STEPS, ""]
 
 
@@ -1229,6 +1230,13 @@ def _triage_report(r: dict) -> str:
                    f"> Instruction line {q['line']} asks every response to include: *\"{_cell(q['text'])}\"*",
                    "> The grader only judged answer quality, so passing questions don't show this. "
                    "Add a check for this exact sentence to the evaluation.", ""]
+
+    ch = r.get("contact_hr") or {}
+    if ch.get("count"):
+        md += [f"> ℹ️ **{ch['count']} of {ch['of']} responses tell the employee to contact HR or give a phone number.** "
+               "Articles written before the agent often say this. If employees using the agent shouldn't be sent to HR "
+               "this way, add a rule with the instruction draft: offer the agent's help or a case first, and give HR "
+               "contact details only when asked.", ""]
 
     if not items:
         md.append("No failed questions.")

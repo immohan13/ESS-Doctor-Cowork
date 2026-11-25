@@ -26,6 +26,13 @@ Ask only for what's missing, in **one** message, never one question at a time. A
 
 Also ask for 2–4 example questions that **should** change (`should_affect`) and 2–4 that **must not** (`must_not_affect`); propose your own examples in the same message so the maker can just accept them. Always put the maker's own words in `intent`.
 
+Requests seen in customer agents, and how to frame them:
+
+- **"Stop telling employees to call HR"**: an `escalation` change whose `intent` is to offer the agent's own help or a case first and give HR contact details only when the employee asks how to reach HR. Leave the knowledge articles unchanged; they also serve people without the agent. The escalation rule only names contacts, phone numbers or emails that a retrieved source gives.
+- **Many terms or acronyms**: `terminology` handles a few. When the instructions end up defining more than 10 terms, the report recommends a glossary knowledge document instead; pass that on.
+- **Banned phrases or words** ("never say 'Want me to…'"): draft the behavior instead (for example "offer an action only when a tool or topic supports it"); lists of phrases get reworded around.
+- **"Don't give any figures"**: a `restricted` change limited to figures from general knowledge and calculations from unsourced inputs; figures a retrieved source states stay allowed, or the agent finds the policy and won't give its number.
+
 Save the instructions to `inputs/current.txt` (or use the uploaded agent file), and the details to `inputs/intake.json`, for example:
 
 ```json

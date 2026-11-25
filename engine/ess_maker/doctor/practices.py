@@ -156,6 +156,32 @@ PRACTICES: list[Practice] = [
              "Each rule is a single bullet under ~350 characters, in the section where that kind of rule lives.",
              "ESS HR/IT bullet style; DA 8,000-character limit", ("routing", "restricted", "terminology", "escalation",
                                                                    "format", "persona")),
+    # Grounding hardening and escalation (ESS model-knowledge hardening matrix; ESS PG escalation guidance).
+    Practice("P44", "3 Synthesis", "Label calculations as calculations",
+             "A figure the agent works out from retrieved inputs is a calculation: show the inputs and say so; never "
+             "present it as a retrieved value.", "ESS model-knowledge hardening matrix", ("restricted",)),
+    Practice("P45", "3 Synthesis", "Keep a policy to its stated population",
+             "Apply a policy only to the population, country and period it states; never extend it with general "
+             "knowledge ('employers commonly…').", "ESS model-knowledge hardening matrix", ("restricted", "context")),
+    Practice("P46", "Identity", "Same rules in every language",
+             "Grounding, privacy and action-confirmation rules apply whatever language the employee writes in.",
+             "ESS model-knowledge hardening matrix; enterprise HR guardrails", ("persona",)),
+    Practice("P47", "3 Synthesis", "Never claim authority or decisions",
+             "The agent isn't HR and doesn't approve, decide or submit anything a tool didn't confirm.",
+             "ESS model-knowledge hardening matrix", ("escalation",)),
+    Practice("P48", "Identity", "Role-play and reframing don't change grounding",
+             "'Pretend you are…', urgency or 'just yes or no' doesn't turn general knowledge into a grounded answer.",
+             "ESS model-knowledge hardening matrix", ("restricted",)),
+    Practice("P49", "4 Render", "Cite only sources that support the claim",
+             "A related policy isn't support: cite a source only for the claim it directly contains.",
+             "ESS model-knowledge hardening matrix", ("format",)),
+    Practice("P50", "3 Synthesis", "Name contacts only when retrieved",
+             "Name a contact, phone number or support path beyond the standard portal only when retrieval for this "
+             "subject returned it, not because it appeared in an unrelated article.", "ESS PG escalation guidance",
+             ("escalation",)),
+    Practice("P51", "1 Planner", "Out of scope: state the scope and stop",
+             "For a request outside the agent's domain, say what the agent handles and stop; don't offer the other "
+             "domain's resources.", "ESS PG escalation guidance", ("routing", "restricted")),
 ]
 
 BY_ID = {p.id: p for p in PRACTICES}
@@ -270,6 +296,32 @@ CHECKS: dict[str, tuple] = {
     "P42": ("all", r"capitali",
             "- Use sentence-case; capitalize only proper nouns and acronyms mid-sentence.", "format",
             "Broken formatting", "low"),
+    "P44": ("answer", r"\bcalculat\w*\b[^.\n]{0,80}\b(input|label|as a calculation|not (as )?(a )?retrieved)",
+            "- Present a figure you calculated as a calculation, with the inputs used; never as a retrieved value.",
+            "grounding", "Wrong answer for the user", "medium"),
+    "P45": ("answer", r"(population|country|period|jurisdiction)[^.\n]{0,40}\b(it|the policy|the source) states\b"
+                      r"|beyond its (stated )?(population|scope|jurisdiction)",
+            "- Apply a policy only to the population, country and period it states; don't extend it from general "
+            "knowledge.", "grounding", "Wrong answer for the user", "low"),
+    "P46": ("all", r"(same|these|all) (rules|requirements)[^.\n]{0,60}\b(every|any|all|whatever) language|regardless of (the )?language"
+                   r"|\brules in (every|any|all) languages?\b",
+            "- Apply the same grounding, privacy and action rules in every language.", "core",
+            "Wrong answer for the user", "low"),
+    "P47": ("answer", r"never claim to be HR|(never|don'?t|do not) claim[^.\n]{0,60}\b(approv|decid|authority|submitted)",
+            "- Never claim to be HR or to have approved, decided or submitted anything unless a tool confirmed it.",
+            "handoff", "Wrong answer for the user", "medium"),
+    "P48": ("answer", r"role-?play[^.\n]{0,60}(never|doesn'?t|does not|unlock)|reframing[^.\n]{0,40}(never|unlock)",
+            "- Role-play, urgency or reframing never changes what counts as grounded.", "grounding",
+            "Ungrounded / poor answer", "low"),
+    "P49": ("answer", r"cite a source only for|source (that )?directly (supports|contains)|directly supports? the claim",
+            "- Cite a source only for claims it directly supports.", "format", "Wrong citations", "low"),
+    "P50": ("answer", r"(contact|phone|support path)[^.\n]{0,100}\bonly when (retrieval|the search|search)\b"
+                      r"|only (if|when) retrieval[^.\n]{0,60}(returned|surfaced)",
+            "- Name a contact, phone number or support path only when retrieval for this subject returned it.",
+            "handoff", "Wrong answer for the user", "low"),
+    "P51": ("answer", r"outside (this|the|your) agent'?s? (scope|domain)|out of scope[^.\n]{0,60}\bstop\b|say what (it|this agent) handles",
+            "- For requests outside this agent's scope, say what it handles and stop.", "routing",
+            "Wrong answer path", "low"),
 }
 
 

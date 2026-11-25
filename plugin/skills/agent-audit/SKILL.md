@@ -45,6 +45,11 @@ Across the agents:
 | Workday user context still on the legacy ISU + RaaS topic | Every new session waits 7–10 seconds before the first answer; the simplified setup makes one `/workers/me` call per session |
 | More than 10 knowledge sources and no general search-and-answer topic scoped to the main source | Generative orchestration searches two or three times per question, 10–20 seconds each |
 | Two exports of the same agent (for example QA and production) with different topics or knowledge | Latency and quality measured in one environment don't carry over to the other |
+| A routing table or topic map used as a knowledge source | Every question costs an extra search before it's routed: single answers took 19–37 seconds in a customer agent, and the same sources on the hub doubled searches and produced duplicate or empty replies |
+| A child agent's topic counts attempts with a global variable | Variables don't carry over between hub calls, so the count resets and the topic always acts like the first request |
+| A topic description that excludes an audience its condition requires (for example "excluding US" but continues only for US) | The description routes questions, so the right ones never reach the topic |
+| More than about 30K characters of instructions across the agent and its topic prompts | Hard to maintain as policies and models change, slower, and less consistent; keep the safeguards and move the rest into an evaluation set |
+| Topic conditions with 20 or more literal codes | Every change means editing each topic and copies drift; keep the list in an environment variable |
 
 Each agent's instructions also go through the instruction check against its ESS template (HR, IT or hub).
 

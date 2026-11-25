@@ -1,7 +1,7 @@
 ```text
 Conversation Investigation (developer mode card) — 11111111-2222-3333-4444-555555555555
 Source: Microsoft 365 Copilot developer mode debug card
-Generated: 2026-11-25 20:52 UTC
+Generated: 2026-11-25 21:21 UTC
 
 ==============================================================
 USER QUESTION
@@ -82,4 +82,4 @@ WHAT THIS CARD CAN'T SEE
 - Steps inside Copilot Studio topics or flows after the action was called.
 ```
 
-<!-- essdoctor: version=2.10.0 skill=conversation-xray command=xray -->
+<!-- essdoctor: version=2.11.0 skill=conversation-xray command=xray -->

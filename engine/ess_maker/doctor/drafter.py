@@ -298,8 +298,9 @@ def draft_clause(intake: Intake) -> tuple[str, list[str]]:
                 f"aren't limited to {src}.", ["P04", "P05", "P19", "P25", "P43"])
     if t == "escalation":
         return (f"- When {intake.scope}, say what you can help with and offer {intake.route} only if a configured "
-                "topic supports it. Don't say a handoff happened unless the topic confirms it.",
-                ["P29", "P30", "P33", "P43"])
+                "topic supports it. Name a more specific contact or phone number only when retrieval for this subject "
+                "returned it. Don't say a handoff happened unless the topic confirms it.",
+                ["P29", "P30", "P33", "P50", "P43"])
     if t == "format":
         scope = intake.scope or "policy answers"
         return (f"- For {scope}: {intake.format_spec}. Keep every citation and exact URL, and don't change topic "
@@ -519,6 +520,12 @@ async def draft(intake: Intake, agent: AgentDoc, baseline: AgentDoc | None, use_
         source_note = ("Instructions make the disclaimer very likely, not guaranteed: the model can still drop it on long "
                        "answers. Microsoft 365 Copilot already shows its own 'AI-generated content may be incorrect' "
                        "notice, so keep yours specific to your policies. Check it on every question in the eval set below.")
+    if intake.change_type == "terminology":
+        defined = len(re.findall(r"\"[^\"]{1,40}\" means\b|\b\w[\w ]{0,30} = \w", new_text))
+        if defined > 10:
+            source_note = (f"The instructions now define about {defined} terms. Beyond 10, put the terms in a knowledge "
+                           "document (term, meaning, source term) and tell the instructions to use it, and ask the content "
+                           "owner to add employees' words to the articles; that fixes the mismatch at the source.")
     return {
         "placement": place,
         "clause": final_clause,

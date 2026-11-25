@@ -14,7 +14,8 @@ HANDOFF_CLAUSE = ("- For harassment, discrimination, or retaliation concerns: ac
 # Rules that need human judgment or live in config, not instructions.
 MANUAL = {"L7-MODERATION-DRIFT", "L5-BROAD-KNOWLEDGE", "L1-REFS-UNVERIFIED",
           "L1-TOPIC-MISSING", "L1-TOPIC-INACTIVE", "L1-GLOBAL-UNDEFINED", "L6-MANDATED-TOOL-CHAIN",
-          "L1-TOPIC-OVERLAP", "L1-TOPIC-DESC-VAGUE", "L5-SINGLE-SOURCE", "L3-MULTI-FALLBACK"}
+          "L1-TOPIC-OVERLAP", "L1-TOPIC-DESC-VAGUE", "L5-SINGLE-SOURCE", "L3-MULTI-FALLBACK",
+          "L6-PROSE-TOOL-ORDER", "L0-SELF-REPORTING", "L8-WORD-BAN"}
 # Length findings are fixed by condensing the whole text to the limit minus a 10% buffer.
 LENGTH_RULES = {"L0-LENGTH", "L0-HEADROOM"}
 LENGTH_TARGET = int(DA_INSTRUCTION_LIMIT * 0.9)
@@ -200,11 +201,23 @@ def _apply_one(f: Finding, doc: AgentDoc, t: _Text, baseline: AgentDoc | None) -
         t.set(no, re.sub(r"According to employee handbook section 4\.2\.{0,3}", "According to <article title>...", t.get(no)))
         return "Replaced the literal citation example with a placeholder."
 
+    if rid == "L5-CONTEXT-IN-SEARCH":
+        new = re.sub(r"\bcontextuali([sz])e (searches|search queries|queries|the search)( and (the )?responses)?",
+                     r"contextuali\1e responses", t.get(no), flags=re.I)
+        if new != t.get(no):
+            t.set(no, new)
+            return "Employee context now tailors the answer, not the search."
+
+    if rid == "L4-GENERIC-CLARIFY-OPTIONS":
+        t.insert_after(f.lines[-1], ["- In a clarifying question, offer only the options the knowledge search returned for "
+                                     "the request, never a generic or assumed list."])
+        return "Clarifying questions now offer only options the search returned."
+
     sentence_fixes = {
         "L4-FALLBACK-ESCALATE": (r"[^.]*\b(unsure|not sure|uncertain|in doubt|can'?t answer|cannot answer|don'?t know)\b[^.]*\b(case|ticket|incident)\b[^.]*\.?",
                                  "If KB search and one retry don't answer the question, offer to create a case.",
                                  "Escalation now happens only after knowledge search and one retry."),
-        "L5-QUERY-REWRITE": (r"[^.]*\b(translate|rewrite|rephrase|expand|append|prepend)\b[^.]*\b(query|queries|search terms?|keywords?)\b[^.]*\.?",
+        "L5-QUERY-REWRITE": (r"[^.]*\b(translate|rewrite|rephrase|expand|append|prepend)\b[^.]*\b(query|queries|search terms?|keywords?|search_query|search_keywords)\b[^.]*\.?",
                              "Search with the user's words; add country or role only when the policy varies by it.",
                              "Search now uses the user's words."),
         "L8-CITATION-STRIP": (r"[^.]*\b(do not|don'?t|never|avoid|without)\b[^.]*\b(links?|urls?|citations?|sources?|references?|hyperlinks?)\b[^.]*\.?",
@@ -221,6 +234,15 @@ def _apply_one(f: Finding, doc: AgentDoc, t: _Text, baseline: AgentDoc | None) -
                                  "Search once with the employee's words, retry at most once with broader terms, and stop "
                                  "when the results cover every part of the question.",
                                  "One search per question, with at most one retry."),
+        "L3-OVERHARDENED-FIGURES": (r"[^.]*\b(never|can'?t|cannot|do not|don'?t|any|no)\b[^.]*\b(figures?|thresholds?|durations?|"
+                                    r"entitlements?|amounts?|numbers?)\b[^.]*\.?",
+                                    "Don't state statutory thresholds, legal entitlements or figures from general knowledge, "
+                                    "or calculate from inputs a source didn't give; state figures exactly as a retrieved source "
+                                    "states them, with its citation.",
+                                    "Figures stated in retrieved sources are allowed again; general-knowledge figures stay blocked."),
+        "L8-PHRASE-BLACKLIST": (r"[^\n]*\b(never|do not|don'?t) use\b[^\n]*",
+                                "Offer, imply or claim an action only when a configured tool or topic supports it.",
+                                "Replaced the phrase list with a behavior rule."),
     }
     if rid in sentence_fixes:
         pat, repl, msg = sentence_fixes[rid]

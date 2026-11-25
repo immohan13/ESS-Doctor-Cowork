@@ -56,7 +56,10 @@ USER_SEES = {
     "L5-SINGLE-SOURCE": "Incomplete answer", "L5-WEB-SEARCH-ON": "Ungrounded / poor answer",
     "L5-BROAD-KNOWLEDGE": "Ungrounded / poor answer",
     "L6-HARD-ROUTE-EXCLUDES-TOOLS": "Incomplete answer", "L6-MANDATED-TOOL-CHAIN": "Slow answer",
-    "L6-EXHAUSTIVE-SEARCH": "Slow answer",
+    "L6-EXHAUSTIVE-SEARCH": "Slow answer", "L5-CONTEXT-IN-SEARCH": "Ungrounded / poor answer",
+    "L6-PROSE-TOOL-ORDER": "Ungrounded / poor answer", "L3-OVERHARDENED-FIGURES": "Overly cautious",
+    "L8-PHRASE-BLACKLIST": "Broken formatting", "L4-GENERIC-CLARIFY-OPTIONS": "Overly cautious",
+    "L0-SELF-REPORTING": "Slow answer", "L8-WORD-BAN": "Wrong answer for the user",
     "L6-UNSAFE-DEFAULT": "Wrong answer for the user", "L7-PREEMPTIVE-ROUTE": "Wrong answer path",
     "L7-SENSITIVE-SUPPRESSION": "Wrong answer path", "L7-MODERATION-DRIFT": "Overly cautious",
     "L8-LITERAL-EXAMPLE": "Wrong citations", "L8-CITATION-STRIP": "Wrong citations",
@@ -650,16 +653,47 @@ def _rule_pipeline_gaps(doc: AgentDoc) -> list[Finding]:
         ))
 
     # 2 Search: query rewriting / forced single source.
-    hit = _first(L, r"\b(translate|rewrite|rephrase|expand|append|prepend)\b[^.]{0,40}\b(the |every |each |all )?(search )?(query|queries|search terms?|keywords?)\b")
+    hit = _first(L, r"\b(translate|rewrite|rephrase|expand|append|prepend)\b[^.]{0,40}\b(the |every |each |all |both )?(search )?"
+                    r"(query|queries|search terms?|keywords?|search_query|search_keywords)\b")
     if hit:
+        context_rewrite = re.search(r"search_query|search_keywords|device|\bOS\b|operating system|context[- ]gather", hit.text, re.I)
         out.append(Finding(
-            "L5-QUERY-REWRITE", "medium", "L5 Search impact", "search",
-            "Instruction rewrites the search query",
+            "L5-QUERY-REWRITE", "high" if context_rewrite else "medium", "L5 Search impact", "search",
+            "Instruction rewrites the search query" + (" with device, OS or profile context" if context_rewrite else ""),
             [hit.no], hit.text.strip()[:240],
             "Rewritten or translated queries drift from the words in the source documents, so the right document "
-            "isn't returned and the answer is built on weaker evidence.",
-            "Search with the user's words. Add context (country, role) only when the policy varies by it.",
-            ["What is the parental leave policy?"], "KI-005",
+            "isn't returned and the answer is built on weaker evidence."
+            + (" Adding device, OS, location or identity to every query changes the problem being searched for "
+               "('Outlook pane not rendering' became 'Outlook unable to load for <name> in <campus> on <laptop>'); in "
+               "a customer agent 70% of evaluations failed after a model upgrade because of this." if context_rewrite else ""),
+            "Search with the user's words. Add context (country, role, device, OS) only when the guidance differs by "
+            "it, and keep reasoning context out of the search text.",
+            ["What is the parental leave policy?", "My Outlook pane is not rendering"], "KI-005",
+        ))
+    hit = _first(L, r"\b(use|apply)\b[^\n]{0,250}\bto contextuali[sz]e (searches|search queries|queries|the search)\b")
+    if hit:
+        out.append(Finding(
+            "L5-CONTEXT-IN-SEARCH", "medium", "L5 Search impact", "search",
+            "Employee context is used to build search queries",
+            [hit.no], hit.text.strip()[:240],
+            "Transcripts show values such as cost center, role and location appended to search terms at the model's "
+            "discretion, so searches miss documents written in general terms.",
+            "Use the employee context to tailor the answer, not the search: change 'contextualize searches and "
+            "responses' to 'contextualize responses'.",
+            ["What is the parental leave policy?", "How do I book travel?"], "",
+        ))
+    hit = _first(L, r"\bbefore (searching|any (knowledge )?search|you search|calling[^.]{0,30}search)\b[^.]{0,120}\b(call|invoke|run|use)\b"
+                    r"|\b(call|invoke|run)\b[^.]{0,60}\bbefore (searching|any (knowledge )?search|you search)\b")
+    if hit:
+        out.append(Finding(
+            "L6-PROSE-TOOL-ORDER", "medium", "L6 Tool-call impact", "tool",
+            "A tool order is required in prose",
+            [hit.no], hit.text.strip()[:240],
+            "The order is a suggestion to the model, not enforced: search sometimes runs before the other tool, so "
+            "the context the rule depends on isn't there yet.",
+            "Put the sequence in a topic (call the tool, store the result in a variable, then search), or make each "
+            "step work without the other.",
+            ["My laptop is slow"], "",
         ))
     hit = _first(L, r"\b(only|exclusively)\s+(search|use|query|consult)\b[^.]{0,60}\b(site|source|knowledge|sharepoint|kb|page)")
     if hit and not re.search(r"organi[sz]ation-approved|approved sources|retrieved", hit.text, re.I):
@@ -672,6 +706,75 @@ def _rule_pipeline_gaps(doc: AgentDoc) -> list[Finding]:
             "Scope the rule to the subject that source owns ('For benefits questions, search <source>'), and let other "
             "questions use all knowledge sources.",
             [], "KI-016",
+        ))
+
+    # 3 Synthesis: over-hardening and over-prescription.
+    hit = _first(L, r"\bnever (state|give|provide|share)\b[^.]{0,160}\b(thresholds?|durations?|entitlements?|amounts?|figures?)\b[^.]{0,120}\beven if retrieved\b"
+                    r"|\b(any|no)\b[^.]{0,20}\b(pay|tax|accrual|benefit|leave)\b[^.]{0,40}\bfigures?\b[^.]{0,60}\b(unless|never|don'?t|not)\b"
+                    r"|\b(can'?t|cannot|do not|don'?t|never) (state|give|provide)[^.]{0,30}\b(entitlement|benefit|pay|leave) (figures?|amounts?|numbers?)\b")
+    if hit:
+        out.append(Finding(
+            "L3-OVERHARDENED-FIGURES", "high", "L3 Conflicts", "synthesis",
+            "Grounding rule also blocks figures the sources state",
+            [hit.no], hit.text.strip()[:240],
+            "The agent finds the right policy but won't give its number ('Because this is an entitlement figure, I "
+            "can't provide it. Please contact the People team.'), so questions the knowledge answers end in a referral.",
+            "Block statutory thresholds, legal entitlements and figures from general knowledge, and calculations from "
+            "inputs a source didn't give; state figures exactly as a retrieved source states them, with the citation.",
+            ["How many days of home-move leave do full-time employees in Germany get?",
+             "What is emergency-responder leave?"], "",
+        ))
+    for ln in _match(L, r"\b(never|do not|don'?t) use\b[^.]{0,40}\b(endings|phrases|openers|closings|offers|words?)\b[^.]{0,20}\b(such as|like)\b"):
+        if len(re.findall(r"[\"“'‘][^\"”'’]{2,40}[\"”'’]", ln.text)) >= 3:
+            out.append(Finding(
+                "L8-PHRASE-BLACKLIST", "medium", "L8 Style", "synthesis",
+                "A list of banned phrases instead of a behavior rule",
+                [ln.no], ln.text.strip()[:240],
+                "The model rewords around the list ('Want me to…' instead of 'Would you like…'), so the unwanted "
+                "behavior continues, and the list grows with every new wording.",
+                "Replace the list with the behavior: 'Offer, imply or claim an action only when a configured tool or "
+                "topic supports it.'",
+                ["When do I get paid next?"], "",
+            ))
+            break
+    clarify = [ln for ln in _match(L, r"\bask\b[^.]{0,40}\b(whether|which|if)\b[^.]{0,200}\bor\b")
+               if ln.text.count(",") >= 2 and not re.search(r"retriev|search (found|returned)|returned by|sources? (list|show)", ln.text, re.I)]
+    if clarify and _first(L, r"clarif"):
+        out.append(Finding(
+            "L4-GENERIC-CLARIFY-OPTIONS", "medium", "L4 Scope collisions", "routing",
+            "Clarifying questions offer generic options, not ones the search found",
+            [x.no for x in clarify[:3]], clarify[0].text.strip()[:240],
+            "The agent asks the employee to pick from a list the model made up (office, home or network printer), "
+            "which may not match the company's articles; answers built on those options can be withheld as "
+            "ungrounded and end in 'I'm sorry'.",
+            "Keep the clarifying question, but tell the agent to offer only the sub-categories the knowledge search "
+            "returned for the request, never a generic or assumed list.",
+            ["How do I reset my password?", "How do I add a printer?"], "",
+        ))
+    hit = _first(L, r"\b(report|state|list|log|output)\b[^.]{0,30}\b(which|the) (steps|skills|checks|rules)\b[^.]{0,40}\b(you )?(followed|applied|completed|ran)\b"
+                    r"|schema-validated|\b(show|explain|output) your (reasoning|chain of thought)\b|\bthink step by step\b")
+    if hit:
+        out.append(Finding(
+            "L0-SELF-REPORTING", "medium", "L0 Platform limits", "platform",
+            "The agent is asked to report or show its own process",
+            [hit.no], hit.text.strip()[:240],
+            "Self-reports add tokens and latency on every turn and make answers to the same question less consistent; "
+            "the agent saying it followed the steps doesn't show the answer was right.",
+            "Drop the self-reporting and check quality offline: run an evaluation set and review the transcripts "
+            "(ESS Doctor's evaluation and transcript X-ray do this).",
+            [], "",
+        ))
+    hit = _first(L, r"\b(never|do not|don'?t) use the words?\b")
+    if hit and len(re.split(r",|\bor\b", hit.text)) >= 4:
+        out.append(Finding(
+            "L8-WORD-BAN", "low", "L8 Style", "synthesis",
+            "Banned words the agent must paraphrase out of source content",
+            [hit.no], hit.text.strip()[:240],
+            "When a source uses a banned word, the agent paraphrases the policy, which can change its meaning, and "
+            "answers can differ from the cited document.",
+            "Keep the list short, and add evaluation questions whose source passages contain the banned words, to "
+            "check the paraphrase keeps the meaning.",
+            [], "",
         ))
 
     # 3 Synthesis: citations, length caps, conflicting fallbacks.

@@ -49,6 +49,9 @@ CAUSES = {c.id: c for c in [
     Cause("found-but-declined", "Search found content but the agent still declined", "Agent maker (instructions)",
           "Either the kept documents are the wrong ones (fix the query) or the abstain rule is too strict: let the agent "
           "answer from what search returned and cite it.", ("synthesis", "search")),
+    Cause("figure-withheld", "Found the policy but withheld the figure", "Agent maker (instructions)",
+          "A grounding rule blocks figures even when a retrieved source states them. Allow figures a source states, and "
+          "keep blocking only general-knowledge figures and calculations from unsourced inputs.", ("synthesis",)),
     Cause("action-failed", "Topic, action or connector failed", "Connection or backend admin",
           "Open the failing connection (ServiceNow, Workday, ...) and check sign-in, permissions and the instance URL; "
           "the developer mode card shows the HTTP status.", ()),
@@ -243,6 +246,13 @@ def triage(sources: list[tuple[str, str, object]], instructions: str = "", cea: 
             diag, q, r = payload
             items.append(_devmode_item(diag, name, q, r))
     sorry = [i for i in items if i.sorry]
+    from ess_maker.doctor.transcript import _WITHHELD
+
+    for i in items:
+        if i.response and _WITHHELD.search(i.response[:2000]) and i.cause not in ("action-failed", "platform-error"):
+            i.sorry, i.cause = True, "figure-withheld"
+            i.detail = ("Said: \"" + _WITHHELD.search(i.response[:2000]).group(0)[:140] + "\"")
+    sorry = [i for i in items if i.sorry]
     counts = Counter(i.cause for i in sorry)
     current = from_instructions(instructions, "current") if instructions.strip() else None
     current_list = validate(current) if current else []
@@ -320,6 +330,7 @@ def build(result: dict) -> str:
         "rule-decline": "Run the instruction check and narrow the restriction rules behind these declines.",
         "no-search-decline": "Run the instruction check: the grounding and abstain rules make the agent decline before searching.",
         "found-but-declined": "Run the instruction check: the agent found content but its rules stopped the answer.",
+        "figure-withheld": "Run the instruction check and fix the rule that blocks figures the sources state.",
         "no-tool-match": "Improve the descriptions of the topics and tools that should handle these questions.",
         "context-missing": "Set up the user context topic so country, job level and similar details are filled in, then re-test.",
         "search-empty": "Send the questions where search found nothing relevant to the knowledge owner, with the questions listed above.",

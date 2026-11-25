@@ -56,6 +56,7 @@ A **Sessions X-ray** (output starting with `## Sessions X-ray`) is Markdown: sho
    - **Existing line flagged** under "Instruction lines likely responsible": use the `instruction-check` skill (`fix`, then `check`).
    - Show the draft's or fix's **What changed** `diff` blocks as returned, so the maker sees the removed (red) and added (green) lines. For copying, also show the added text in one `text` code block (or hand over the fixed instructions file) and tell the maker to copy it with the code block's Copy button and paste it into the named section in Copilot Studio, then publish; the `+` and `-` markers in a diff are not part of the instructions. Share the `outputs/evalset.csv` the draft or fix wrote, so the maker can import it in Copilot Studio **Evaluation** and test the change.
 4. Say clearly which fixes are not instruction changes and the maker has to do in Copilot Studio, such as setting up the "[Admin] - User Context - Setup" topic, connections or knowledge sources. Don't draft instructions for those.
+5. The report also flags patterns found in customer agents; follow its next steps for each: the employee's name at the start of a delegated task (a hub instruction to pass the question unchanged, not a long privacy section), the same answer sent twice (run `agent-audit` on hub and children), answers telling employees to call HR (offer an `instruction-draft` escalation change if the maker wants the agent to help first), and a figure withheld although the source states it (`instruction-check`, then `fix`).
 
 ## Rules
 

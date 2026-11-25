@@ -37,6 +37,11 @@ For each step, follow that skill's own `SKILL.md` (its Run, Respond and Rules se
 | Evaluation results CSV, or two of them (before and after) | `eval-triage` | `eval-triage` / `eval-compare` |
 | Hub and child agents (snapshots, ALM exports, YAML) | `agent-audit` | `audit` |
 | "The agent is slow", "answers take a minute", QA slower than production | `agent-audit` on each environment's export, then `conversation-xray` on a slow conversation | `audit`, `xray` |
+| "It found the policy but won't give the number", "it says it can't provide figures" | `conversation-xray` on that answer (or `eval-triage` on the results), then `instruction-check` | `xray`, `check`, `fix` |
+| "The employee's name shows in Monitor transcripts", duplicate answers from a hub | `conversation-xray` on that conversation, then `agent-audit` on hub and children | `xray`, `audit` |
+| "It keeps telling employees to call HR" | `instruction-draft` (offer the agent's help or a case first; HR contacts only when asked) | `draft` |
+| Routing through a CSV or table in knowledge, sessions counted in child agents | `agent-audit` | `audit` |
+| "It ignores my banned phrases", "it asks odd clarifying questions", the agent reports its own steps | `instruction-check` | `check`, `fix` |
 | ServiceNow knowledge setup questions | `servicenow-setup` | `setup-servicenow` |
 
 Chain the skills the way their reports point, without waiting to be asked:

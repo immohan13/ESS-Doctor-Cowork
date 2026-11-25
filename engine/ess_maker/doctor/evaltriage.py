@@ -179,7 +179,17 @@ def triage_row(r: dict, agent: AgentDoc) -> Triage:
             t.lines = _find_lines(agent, r"cross-class fallback", r"fallback")
         return t
     # Knowledge questions.
-    if abstained and not docs:
+    from ess_maker.doctor.transcript import _WITHHELD
+
+    if _WITHHELD.search(a[:2000]):
+        t.cause = "instruction"
+        t.headline = "The agent found the policy but an instruction stopped it from stating the figure."
+        t.evidence.append("Response: " + _WITHHELD.search(a[:2000]).group(0)[:160] + ".")
+        t.lines = _find_lines(agent, r"even if retrieved", r"\bfigure", r"entitlement", r"never from memory")
+        t.fix = ("Allow figures that a retrieved source states, and keep blocking only figures from general knowledge "
+                 "and calculations from unsourced inputs (instruction check: 'grounding rule also blocks figures the "
+                 "sources state').")
+    elif abstained and not docs:
         t.cause = "content_gap"
         t.headline = "Knowledge search found nothing that answers this question."
         t.evidence.append("Response is the abstain message with no cited documents.")
@@ -260,8 +270,17 @@ def triage(text: str, agent: AgentDoc) -> dict:
         "items": [{**t.__dict__, "cause_label": CAUSE_LABEL.get(t.cause, ""), "owner": OWNER.get(t.cause, "")}
                   for t in failed],
         "required": check_required(agent, rows, items) if has_results else [],
+        "contact_hr": _contact_count(rows),
         "summary": summary_text(agent, items, counts) if has_results else "",
     }
+
+
+def _contact_count(rows: list[dict]) -> dict:
+    """Responses that send the employee to HR by phone or email (often copied from pre-agent articles)."""
+    from ess_maker.doctor.transcript import _CONTACT_HR
+
+    hits = [r["question"] for r in rows if r.get("actual") and _CONTACT_HR.search(r["actual"][:2000])]
+    return {"count": len(hits), "of": sum(1 for r in rows if r.get("actual")), "questions": hits[:5]}
 
 
 def summary_text(agent: AgentDoc, items: list[Triage], counts: dict) -> str:

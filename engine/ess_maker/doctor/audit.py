@@ -59,6 +59,10 @@ class Topic:
     scoped_sources: list[str] = field(default_factory=list)
     user_context: str = ""  # Workday user-context topic: "legacy" (ISU + RaaS) or "v2" (/workers/me)
     description: str = ""
+    counters: list[str] = field(default_factory=list)  # Global variables incremented in the topic (session state)
+    conditions: str = ""  # condition expressions, joined
+    prompt_chars: int = 0  # characters of additionalInstructions / prompt text inside the topic
+    long_allowlists: int = 0  # conditions comparing against an inline list of 20+ literal values
 
     @property
     def general_search(self) -> bool:
@@ -224,10 +228,17 @@ def parse(text: str, file: str = "") -> Agent:
             scoped = []
             for blk in re.finditer(r"kind: SearchSpecificKnowledgeSources\s*\n\s+knowledgeSources:\s*\n((?:\s+- \S+\n?)+)", comp):
                 scoped += [s for s in re.findall(r"- (\S+)", blk.group(1)) if not s.endswith(":")]
-            a.topics.append(Topic(name, schema, trig.group(1) if trig else "", state,
-                                  comp.count("kind: SearchAndSummarizeContent"), sorted(set(scoped)),
-                                  _user_context(name, schema, comp),
-                                  _scalar(comp, "modelDescription") or _scalar(comp, "description", fi)))
+            topic = Topic(name, schema, trig.group(1) if trig else "", state,
+                          comp.count("kind: SearchAndSummarizeContent"), sorted(set(scoped)),
+                          _user_context(name, schema, comp),
+                          _scalar(comp, "modelDescription") or _scalar(comp, "description", fi))
+            topic.counters = sorted(set(re.findall(r"=\s*(?:Coalesce\(\s*)?(Global\.\w+)\b[^\n]{0,40}\+\s*1\b", comp)))
+            conds = re.findall(r"(?m)^\s*condition:\s*(.+)$", comp)
+            topic.conditions = "\n".join(conds)
+            topic.long_allowlists = sum(1 for c in conds if len(re.findall(r"\"[^\"]{1,20}\"", c)) >= 20)
+            for m in re.finditer(r"(?m)^(\s*)(additionalInstructions|prompt|instructions):\s*(\|-?|>-?)?\s*$", comp):
+                topic.prompt_chars += len(_scalar(comp[m.start():], m.group(2)))
+            a.topics.append(topic)
     if not a.name:
         a.name = a.schema or file
     return a
@@ -511,6 +522,59 @@ def audit(agents: list[Agent]) -> dict:
                         "Make the environments match (deploy the same solution version), then compare latency and "
                         "answer quality with the same users and questions.",
                         change=[f"+ {x.name}: add topic {n}" for n in only_y[:6]] + [f"+ {y.name}: add topic {n}" for n in only_x[:6]]))
+
+    # Configuration patterns seen in customer agents: routing tables as knowledge, session state in child agents,
+    # descriptions that contradict gates, prescriptive instruction volume, inline allowlists.
+    kid_ids = {id(k) for k in kids}
+    for a in agents:
+        tables = [k for k in a.knowledge if k.active and re.search(r"taxonom|rout(ing|e)[ _-]?(table|map)|topic[_ -]?rout|intent[_ -]?map",
+                                                                    f"{k.name} {k.target}", re.I)]
+        if tables:
+            gaps.append(Gap("A22-ROUTING-TABLE-KNOWLEDGE", "high", [a.name], "A routing table is used as a knowledge source",
+                            f"{', '.join(k.name for k in tables[:3])} lists topics and which agent owns them, and the agent "
+                            "has to search it to decide where to send each question. That adds a knowledge search to every "
+                            "question: in a customer agent single-turn answers took 19–37 seconds, some timed out, and the "
+                            "same sources on the hub doubled the searches and produced duplicate or empty replies.",
+                            "Route with the connected agents' and topics' descriptions (name the subjects each owns), and "
+                            "remove the routing table from knowledge. Keep each knowledge source on one agent only.",
+                            change=_removals(f"{a.name} knowledge source: {k.name}" for k in tables)))
+        if id(a) in kid_ids or a.connectable:
+            counted = [(t.name, c) for t in a.topics if t.active for c in t.counters]
+            if counted:
+                gaps.append(Gap("A23-SESSION-STATE-IN-CHILD", "medium", [a.name],
+                                "A topic counts with a global variable in an agent other agents call",
+                                f"{counted[0][0]} increments {counted[0][1]} to change its reply on later requests. When the "
+                                "agent is called through a hub, its variables don't carry over between calls, so the count "
+                                "resets and the topic always behaves as on the first request.",
+                                "Don't rely on variables that must persist across hand-offs. Put the behavior in the "
+                                "instructions (for example: ask what the issue is and try to answer it before offering to "
+                                "create a case), or keep the count in the hub.", change=[]))
+        for t in a.topics:
+            if not t.active:
+                continue
+            if re.search(r"\bexclud\w*[^.\n]{0,60}\b(US|USA|United States)\b", t.description, re.I) and \
+                    re.search(r"Country\w*\s*=\s*\"(USA|US|United States)\"", t.conditions):
+                gaps.append(Gap("A24-DESCRIPTION-CONTRADICTS-CONDITION", "medium", [a.name],
+                                f"\"{t.name}\" says one thing in its description and checks another",
+                                "The description excludes US employees, but the topic only continues for US employees. "
+                                "The description is what routes questions to the topic, so US questions may not reach it "
+                                "and others reach it only to be turned away.",
+                                "Make the description state the same audience as the condition."))
+        prompt_total = len(a.instructions) + sum(t.prompt_chars for t in a.topics if t.active)
+        if prompt_total > 30000:
+            gaps.append(Gap("A25-INSTRUCTION-VOLUME", "medium", [a.name],
+                            f"About {prompt_total // 1000}K characters of instructions across the agent and its topics",
+                            "Large amounts of prescriptive instruction are hard to maintain as policies and models change, "
+                            "add latency, and can make answers to the same question less consistent.",
+                            "Keep runtime instructions to the essential safeguards and move the rest into an evaluation "
+                            "set: test, find failures, fix the few rules behind them, and re-test."))
+        lists = [t.name for t in a.topics if t.active and t.long_allowlists]
+        if lists:
+            gaps.append(Gap("A26-INLINE-ALLOWLIST", "low", [a.name], "Long allowlists are written into topic conditions",
+                            f"{', '.join(lists[:3])} compare a value against a list of 20 or more literal codes. Every change "
+                            "means editing each topic, and copies drift apart.",
+                            "Keep the list in an environment variable (for example a company-code scope variable) and "
+                            "reference it in the condition."))
 
     # Settings drift from the ESS templates and between hub and children.
     for a in agents:

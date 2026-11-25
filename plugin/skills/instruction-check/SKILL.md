@@ -49,6 +49,10 @@ python3 scripts/essdoctor.py practices
 
 ## Respond
 
+The check also catches patterns found while tuning customer agents: employee context used to build search queries (rather than to tailor the answer), search queries rewritten with device, OS or profile details, a tool order required in prose, grounding rules that also block figures the sources state, lists of banned phrases or words instead of a behavior rule, clarifying questions with made-up options, and asking the agent to report its own steps. Treat them like any other finding: show them as numbered, and fix them with `fix`.
+
+When the maker keeps adding rules to fix individual answers, suggest the evaluation loop instead: keep the essential safeguards in the instructions, put the behaviors they want in the evaluation test set, run it, fix only the rules behind the failures and re-run. A high pass rate on a small set isn't sign-off; check the failed questions and a sample of passes.
+
 Every proposed change in the report is a `diff` code block: removed lines start with `-` (red) and added lines with `+` (green). That covers **What changed**, the **Proposed change** under each finding (the change `fix` would make for that rule) and the text to add for each authoring-practice gap. Keep those blocks exactly as returned, including the `diff` language tag and their indentation, so the colors render; don't turn them into tables or prose.
 
 1. Show the engine's Markdown report as returned, as Markdown (not in a code block), so its tables and numbered findings render. Don't rewrite, reorder or drop findings, and don't add findings of your own.

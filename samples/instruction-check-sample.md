@@ -4,7 +4,7 @@ Checked against the ESS HR template.
 
 | Findings | Length (Copilot Studio count) | Authoring practices | ESS core blocks |
 | --- | --- | --- | --- |
-| 🔴 2 high · 🟠 2 medium · 🟡 1 low | ⚠️ 7,677 of 8,000 (7,627 raw) | 17 of 26 followed | ✅ 3 of 3 present |
+| 🔴 2 high · 🟠 2 medium · 🟡 1 low | ⚠️ 7,677 of 8,000 (7,627 raw) | 17 of 34 followed | ✅ 3 of 3 present |
 
 ### Fix first
 
@@ -79,7 +79,7 @@ Checked against the ESS HR template.
 
 ✅ All present: Routing decision tree (line 4), Tool-first grounding (line 27), Knowledge retry budget (line 30).
 
-### Authoring practices: 17 of 26 followed
+### Authoring practices: 17 of 34 followed
 
 **Gaps in your instructions**
 
@@ -141,7 +141,55 @@ Checked against the ESS HR template.
    + Offer an action only when a configured topic or tool supports it.
    ```
 
+15. **Label calculations as calculations**: add under *Grounding*
+
+   ```diff
+   + Present a figure you calculated as a calculation, with the inputs used; never as a retrieved value.
+   ```
+
+16. **Keep a policy to its stated population**: add under *Grounding*
+
+   ```diff
+   + Apply a policy only to the population, country and period it states; don't extend it from general knowledge.
+   ```
+
+17. **Same rules in every language**: add under *Core*
+
+   ```diff
+   + Apply the same grounding, privacy and action rules in every language.
+   ```
+
+18. **Never claim authority or decisions**: add under *Handoff*
+
+   ```diff
+   + Never claim to be HR or to have approved, decided or submitted anything unless a tool confirmed it.
+   ```
+
+19. **Role-play and reframing don't change grounding**: add under *Grounding*
+
+   ```diff
+   + Role-play, urgency or reframing never changes what counts as grounded.
+   ```
+
+20. **Cite only sources that support the claim**: add under *Format*
+
+   ```diff
+   + Cite a source only for claims it directly supports.
+   ```
+
+21. **Name contacts only when retrieved**: add under *Handoff*
+
+   ```diff
+   + Name a contact, phone number or support path only when retrieval for this subject returned it.
+   ```
+
+22. **Out of scope: state the scope and stop**: add under *Routing*
+
+   ```diff
+   + For requests outside this agent's scope, say what it handles and stop.
+   ```
+
 To apply fixes, ask ESS Doctor to fix all of them or name the numbers above (for example "fix 1, 2 and 5").
 
 
-<!-- essdoctor: version=2.10.0 skill=instruction-check command=check -->
+<!-- essdoctor: version=2.11.0 skill=instruction-check command=check -->
