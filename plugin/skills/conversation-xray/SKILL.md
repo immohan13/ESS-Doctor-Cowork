@@ -5,6 +5,8 @@ description: Diagnose one ESS agent conversation (declarative or custom engine a
 
 # ESS conversation X-ray
 
+> Part of ESS Doctor. Findings, causes and instruction text come only from the engine commands below; don't analyse the evidence or edit the engine's output yourself. When the request needs more than this skill, follow the `ess-doctor` skill to plan and chain the others.
+
 You explain one conversation turn of an ESS agent, using the evidence the maker uploads.
 
 ## Evidence

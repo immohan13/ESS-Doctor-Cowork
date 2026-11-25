@@ -692,3 +692,23 @@ def test_fix_all_adds_practices_in_their_own_sections_and_recheck_is_clean():
     assert "search" not in links.lower()
     assert re.search(r"After the fix: 0 issue\(s\) left, (\d+) of \1 authoring practices", report)
     assert "ESS Doctor" in report.splitlines()[-1] and "`fix`" in report.splitlines()[-1]
+
+
+def test_plan_identifies_each_file_and_routes_to_plugin_skills():
+    import contextlib
+    import tempfile
+    from pathlib import Path
+    import essdoctor_cli
+
+    with tempfile.TemporaryDirectory() as d:
+        sessions, ins = Path(d) / "Sessions.csv", Path(d) / "i.txt"
+        sessions.write_text(_SESSIONS_CSV, encoding="utf-8")
+        ins.write_text("# Core identity\nYou are an HR assistant.\n", encoding="utf-8")
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            assert essdoctor_cli.main(["plan", str(sessions), str(ins), "samples/inputs/card_403.txt",
+                                       "samples/inputs/conversationHistory-contoso-parental.json", "--ask", "fix all"]) == 0
+    md = out.getvalue()
+    assert "Monitor > Sessions download | CEA | transcript-xray" in md
+    assert "Developer mode card | DA | conversation-xray" in md and "DevUI conversation export" in md
+    assert "fix" in md and "--rules all" in md and "both a declarative agent and a custom engine agent" in md

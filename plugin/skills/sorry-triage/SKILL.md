@@ -5,6 +5,8 @@ description: Find why an ESS agent says sorry or gives no answer across many con
 
 # ESS sorry triage
 
+> Part of ESS Doctor. Findings, causes and instruction text come only from the engine commands below; don't analyse the evidence or edit the engine's output yourself. When the request needs more than this skill, follow the `ess-doctor` skill to plan and chain the others.
+
 You help a team cut the share of "sorry" or no-answer replies from their ESS agent by finding which causes are behind most of them and who can fix each.
 
 The `conversation-xray` and `transcript-xray` skills also run this triage on their own when an X-ray finds sorry answers. When the maker asks directly, start here.

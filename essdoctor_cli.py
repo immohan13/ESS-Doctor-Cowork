@@ -1335,7 +1335,134 @@ def cmd_component_update(a) -> str:
 
 _SKILL_OF = {"check": "instruction-check", "fix": "instruction-check", "condense": "instruction-check",
              "draft": "instruction-draft", "xray": "conversation-xray", "sorry-triage": "sorry-triage",
-             "eval-triage": "eval-triage", "eval-compare": "eval-triage", "audit": "agent-audit"}
+             "eval-triage": "eval-triage", "eval-compare": "eval-triage", "audit": "agent-audit", "plan": "ess-doctor"}
+
+
+def _identify(name: str, data: bytes) -> tuple[str, str, str]:
+    """(what the file is, agent type: da / cea / "", kind key) for one uploaded file."""
+    from ess_maker.doctor import appinsights, devmode, transcript
+
+    if zipfile.is_zipfile(io.BytesIO(data)):
+        if _snapshot(data):
+            return "Copilot Studio test pane snapshot (conversation + agent setup)", "cea", "snapshot"
+        with zipfile.ZipFile(io.BytesIO(data)) as z:
+            names = z.namelist()
+        if any(re.search(r"(?i)(^|/)Agents/[^/]+/agent\.ya?ml$", n) for n in names):
+            return "Copilot Studio ALM agent export", "da", "agent"
+        if any(re.search(r"(?i)declarativeagent|manifest\.json$", n) for n in names):
+            return "Declarative agent package", "da", "instructions"
+        if any(n.lower().endswith(".zip") or re.search(r"(?i)botcontent|\.ya?ml$", n) for n in names):
+            return "Zip of agent exports or snapshots", "", "agent"
+        return "Zip of conversation evidence", "", "evidence"
+    text = _text(data).lstrip("\ufeff")
+    head = text[:3000]
+    low = head.lower()
+    first = head.splitlines()[0] if head else ""
+    if text.lstrip().startswith(("{", "[")):
+        try:
+            obj = json.loads(text)
+        except ValueError:
+            obj = None
+        if isinstance(obj, dict) and "requests" in obj and "messages" in obj:
+            return "DevUI conversation export (Microsoft support)", "da", "devui"
+        if transcript.load(text):
+            return "Copilot Studio conversation transcript", "cea", "transcript"
+    if transcript.load_sessions(text):
+        return "Copilot Studio Monitor > Sessions download", "cea", "sessions"
+    if appinsights.is_export(text):
+        return "Application Insights export", "cea", "appinsights"
+    if re.search(r'(^|,|")\s*AuditData\s*("|,|$)', first, re.I):
+        return "Purview audit export", "da", "purview"
+    is_csv = first.count(",") >= 1 and not first.lstrip().startswith(("#", "{"))
+    if is_csv and re.search(r"(?i)\bquestion\b", first):
+        rows = evaltriage.parse_results(text)
+        if any(r.get("result") for r in rows):
+            return "Copilot Studio evaluation results", "", "evalresults"
+        return "Evaluation test set (questions only, no results)", "", "evalset"
+    if transcript.load(text):
+        return "Copilot Studio conversation transcript", "cea", "transcript"
+    if re.search(r"(?m)^kind:\s*BotDefinition|^-?\s*kind:\s*GptComponent", text) or "knowledgesourcecomponent" in low:
+        return "Agent YAML (botContent.yml / agent.yml)", "cea" if "botcontent" in name.lower() else "", "agent"
+    if is_csv:
+        return "A CSV ESS Doctor doesn't recognise", "", "empty"
+    if devmode.looks_like_devmode(text):
+        return "Developer mode card", "da", "devmode"
+    if text.strip():
+        return "Agent instructions", "", "instructions"
+    return "Empty file", "", "empty"
+
+
+_PLAN = {
+    "sessions": ("transcript-xray", 'xray "{f}"', "Verdict per session; then sorry triage with the failed sessions' transcripts"),
+    "transcript": ("conversation-xray", 'xray "{f}" --question "<words from the question>"', "Step-by-step X-ray"),
+    "snapshot": ("conversation-xray", 'xray "{f}"', "Step-by-step X-ray with the agent's instructions and topics"),
+    "appinsights": ("conversation-logs", 'xray "{f}" --conversation <id>', "X-ray of one conversation from telemetry"),
+    "devmode": ("conversation-xray", 'xray "{f}" --question "<question>" --response "<answer>"', "Step-by-step X-ray"),
+    "devui": ("conversation-xray", 'xray "{f}"', "Full X-ray with the instructions that ran"),
+    "purview": ("conversation-xray", 'xray "{f}" --agent "<agent name>"', "Which agent version ran when"),
+    "evalresults": ("eval-triage", 'eval-triage "{f}" --instructions <instructions>', "Why each question failed, who fixes it"),
+    "evalset": ("eval-triage", "", "Import it in Copilot Studio > Evaluation, run it, and upload the results CSV"),
+    "agent": ("agent-audit", 'audit "{f}" [other agents]', "Gaps across hub and child agents"),
+    "instructions": ("instruction-check", 'check "{f}"', "Findings, practices and proposed changes"),
+}
+
+
+def cmd_plan(a) -> str:
+    """Which ESS Doctor skill and command handles each uploaded file, and in what order to run them."""
+    rows = []
+    for path in a.files:
+        name = Path(path).name
+        try:
+            what, kind_agent, key = _identify(name, _read(path))
+        except InputError as e:
+            what, kind_agent, key = f"Can't read: {e}", "", "empty"
+        rows.append((path, name, what, kind_agent, key))
+    ask = (a.ask or "").lower()
+    types = {t for *_, t, _ in rows if t}
+    agent_type = types.pop() if len(types) == 1 else ""
+    mixed = len({t for *_, t, _ in rows if t}) > 1
+    md = ["## ESS Doctor plan", "",
+          "| File | What it is | Agent type | Skill | Command |", "| --- | --- | --- | --- | --- |"]
+    steps: list[str] = []
+    for path, name, what, t, key in rows:
+        skill, cmd, why = _PLAN.get(key, ("", "", ""))
+        if key == "instructions" and re.search(r"\b(add|change|draft|write|update|new rule|tune|don'?t|never)\b", ask) \
+                and not re.search(r"\b(check|review|fix|validate)\b", ask):
+            skill, cmd, why = "instruction-draft", f'draft "{path}" --type <change type> --intent "<the change>"', \
+                "Draft the change into the right section, with a diff and a test set"
+        elif key == "instructions" and re.search(r"\bfix\b", ask):
+            skill, cmd, why = "instruction-check", f'fix "{path}" --rules all', "Apply the fixes, fitted under the limit"
+        elif key == "instructions" and re.search(r"\b(shorten|condense|too long|limit)\b", ask):
+            skill, cmd, why = "instruction-check", f'condense "{path}"', "Shorten to the 10% buffer target"
+        if cmd and agent_type == "cea" and key in ("instructions", "snapshot") and cmd.startswith(("check", "fix")):
+            cmd += " --agent-type cea"
+        rows_cmd = f"`python3 scripts/essdoctor.py {cmd.format(f=path)}`" if cmd else "—"
+        md.append(f"| {_cell(name)} | {_cell(what)} | {t.upper() or '?'} | {skill or '—'} | {rows_cmd} |")
+        if skill:
+            steps.append(f"**{skill}**: {why} ({_cell(name)}).")
+    keys = {k for *_, k in rows}
+    if keys & {"sessions", "transcript", "appinsights", "devmode", "devui", "snapshot"} and len(rows) > 1:
+        steps.append("**sorry-triage**: run across all the conversation files together when more than one answer was a sorry.")
+    if "evalresults" in keys and sum(1 for *_, k in rows if k == "evalresults") == 2:
+        steps.append("**eval-triage**: two results files are a before/after pair: run `eval-compare` on them.")
+    chosen = {s.split("**")[1] for s in steps}
+    if keys & {"snapshot", "instructions", "agent"} and not re.search(r"\bfix\b", ask) and "instruction-draft" not in chosen:
+        steps.append("**instruction-check**: after the diagnosis, run `check` on the instructions; on \"fix\", run `fix` "
+                     "(it writes the evaluation test set). Show the diffs as returned.")
+    if not any(k in _PLAN for k in keys):
+        steps.append("Nothing ESS Doctor can read yet. Ask the maker which agent type it is (declarative or custom engine) "
+                     "and collect the evidence listed in the `ess-doctor` skill.")
+    md += ["", "### Run in this order", ""] + [f"{i}. {s}" for i, s in enumerate(dict.fromkeys(steps), 1)]
+    if agent_type:
+        md += ["", f"Agent type: **{'custom engine agent' if agent_type == 'cea' else 'declarative agent'}** "
+                   f"(from the files). Pass `--agent-type {agent_type}` to `check` and `fix`."]
+    elif mixed:
+        md += ["", "⚠️ These files come from both a declarative agent and a custom engine agent. Ask the maker which agent "
+                   "they're troubleshooting before running anything, and pass `--agent-type` to `check` and `fix`."]
+    else:
+        md += ["", "Agent type: not clear from the files. Ask the maker whether it's a declarative agent or a custom "
+                   "engine agent, and pass `--agent-type da` or `--agent-type cea` to `check` and `fix`."]
+    return "\n".join(md)
 
 
 def _version() -> str:
@@ -1443,6 +1570,11 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("setup-servicenow", help="ServiceNow Knowledge connector setup checklist")
     p.add_argument("--answers", help="JSON file with the answers collected so far")
     p.set_defaults(fn=cmd_setup)
+
+    p = sub.add_parser("plan", help="Identify each uploaded file and say which ESS Doctor skill and command handles it")
+    p.add_argument("files", nargs="+")
+    p.add_argument("--ask", default="", help="What the maker asked, to pick between check, fix, shorten and draft")
+    p.set_defaults(fn=cmd_plan)
 
     p = sub.add_parser("practices", help="List the authoring practices that are checked")
     p.set_defaults(fn=cmd_practices)

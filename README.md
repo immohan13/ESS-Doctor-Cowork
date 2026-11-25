@@ -8,6 +8,7 @@ It runs as a Microsoft Copilot Cowork plugin. Makers with Cowork upload their ag
 
 | Skill | What it does |
 | --- | --- |
+| `ess-doctor` | Planner and entry point: identifies each uploaded file (`plan` command), picks the ESS Doctor skills and commands, runs them in order and keeps Cowork from analysing or editing on its own |
 | `conversation-xray` | Explain one conversation of a declarative agent (developer mode card, Purview audit export, DevUI export) or a custom engine agent (test pane snapshot, Copilot Studio transcript, Application Insights logs, DevUI handoff): tool identification, tool execution, search, summary and recommended fixes, then draft the instruction fix |
 | `conversation-logs` | Look up a custom engine agent conversation by its ID in Application Insights: writes the query, then X-rays the exported CSV |
 | `transcript-xray` | "X-ray my last ESS CEA conversation about leave policy": finds the agent's transcript through the Business apps connector and X-rays it, no export needed |
@@ -22,7 +23,7 @@ It runs as a Microsoft Copilot Cowork plugin. Makers with Cowork upload their ag
 
 | Path | Contents |
 | --- | --- |
-| `plugin/` | Microsoft 365 app manifest, icons and the six `skills/*/SKILL.md` |
+| `plugin/` | Microsoft 365 app manifest, icons and the `skills/*/SKILL.md` files |
 | `engine/ess_maker/doctor/` | Diagnostics engine (standard library only) |
 | `essdoctor_cli.py` | Command-line entry point the skills run |
 | `templates/` | ESS HR, IT and Hub instruction templates used as the baseline |

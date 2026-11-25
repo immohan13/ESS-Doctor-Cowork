@@ -5,6 +5,8 @@ description: Explain failed ESS evaluation questions and compare runs before and
 
 # ESS evaluation triage
 
+> Part of ESS Doctor. Findings, causes and instruction text come only from the engine commands below; don't analyse the evidence or edit the engine's output yourself. When the request needs more than this skill, follow the `ess-doctor` skill to plan and chain the others.
+
 ## Inputs
 
 - One Copilot Studio evaluation results CSV (export it from the agent's **Evaluation** page), plus the agent instructions the run used; or

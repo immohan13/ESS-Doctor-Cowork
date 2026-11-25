@@ -5,6 +5,8 @@ description: Look up one custom engine agent (CEA) conversation by its ID in App
 
 # ESS conversation logs (custom engine agent)
 
+> Part of ESS Doctor. Findings, causes and instruction text come only from the engine commands below; don't analyse the evidence or edit the engine's output yourself. When the request needs more than this skill, follow the `ess-doctor` skill to plan and chain the others.
+
 You find one employee's conversation with a Copilot Studio (custom engine) ESS agent in the maker's Application Insights telemetry, using the conversation ID, and explain it with the same X-ray report as the other ESS Doctor skills.
 
 Use this skill when the maker has a **conversation ID** from a real employee conversation, or wants to look at a conversation without Dataverse transcript access. For a declarative agent (DA), Application Insights doesn't log the conversation: use the `conversation-xray` skill with a developer mode card, a Purview audit export or, with Microsoft support, a DevUI export.
