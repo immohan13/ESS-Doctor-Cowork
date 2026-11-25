@@ -851,3 +851,18 @@ def test_xray_sorry_and_eval_flag_withheld_figures_and_hr_referrals():
            "result": "Fail", "explanation": "", "conversation_id": ""}
     t = evaltriage.triage_row(row, agent)
     assert t.cause == "instruction" and "stating the figure" in t.headline
+
+def test_no_customer_names_in_shipped_text():
+    import base64
+    import re as _re
+    from pathlib import Path
+
+    # Customer names, encoded so this test doesn't add them to the repo.
+    names = _re.compile(base64.b64decode("d2VsbHNccypmYXJnb3xub3J0aGVyblxzKnRydXN0fGthbnRhcnxzZWRnd2ljaw==").decode(), _re.I)
+    root = Path(__file__).resolve().parent.parent
+    hits = [str(p.relative_to(root)) for d in ("plugin", "engine", "samples") for p in (root / d).rglob("*")
+            if p.suffix in (".md", ".py", ".json", ".txt", ".yml", ".yaml", ".csv")
+            and names.search(p.read_text(encoding="utf-8", errors="ignore"))]
+    hits += [f for f in ("README.md", "essdoctor_cli.py", "build.py")
+             if (root / f).exists() and names.search((root / f).read_text(encoding="utf-8", errors="ignore"))]
+    assert not hits, hits
