@@ -411,3 +411,28 @@ def test_draft_report_shows_summary_checks_and_test_table():
     assert "Also put this in the knowledge source's description" in report
     assert "### Check before publishing" in report
     assert "| What is VEO? | How much PTO do I have? |" in report
+
+
+def test_draft_over_limit_is_shortened_automatically_keeping_the_new_rule():
+    import contextlib
+    import tempfile
+    from pathlib import Path
+    import essdoctor_cli
+
+    body = "#Core identity\nYou are an HR agent.\n\n#Routing\n" + "".join(
+        f"- Policy rule {i}: do not answer from memory, do not guess, and do not use general knowledge in order to "
+        f"answer questions about topic {i}.   \n\n\n" for i in range(55))
+    disclaimer = "This agent is in preview; verify the results it gives you."
+    with tempfile.TemporaryDirectory() as d:
+        src, req, out = Path(d) / "c.txt", Path(d) / "i.json", Path(d) / "o" / "d.txt"
+        src.write_text(body, encoding="utf-8")
+        req.write_text(json.dumps({"change_type": "disclaimer", "intent": "add disclaimer", "disclaimer_text": disclaimer}),
+                       encoding="utf-8")
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            assert essdoctor_cli.main(["draft", str(src), "--intake", str(req), "--out", str(out)]) == 0
+        text = out.read_text(encoding="utf-8")
+
+    assert "Shortened automatically to fit" in buf.getvalue()
+    assert disclaimer in text
+    assert essdoctor_cli.studio_len(text) <= 8000

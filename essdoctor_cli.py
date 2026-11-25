@@ -378,8 +378,39 @@ def cmd_draft(a) -> str:
         md += [f"- {_cell(q if isinstance(q, str) else q.get('question') or q.get('label') or q)}"
                for q in r.get("questions") or r.get("needs_input") or []]
         return "\n".join(md)
+    shortened = None
+    r["section"] = ", ".join(re.sub(r"\s*\(.*$", "", b["title"]).strip()
+                             for b in (r.get("diff") or {}).get("blocks") or [] if b.get("status") != "unchanged")
+    if studio_len(r["new_instructions"]) > DA_INSTRUCTION_LIMIT and not getattr(a, "no_condense", False):
+        drafted = studio_len(r["new_instructions"])
+        shortened = _auto_condense(doc, base, r)
+        if shortened:
+            shortened["drafted"] = drafted
     _write(a.out, r["new_instructions"])
-    return _draft_report(a, intake, r, studio_len(doc.instruction_text))
+    return _draft_report(a, intake, r, studio_len(doc.instruction_text), shortened)
+
+
+_RULE_MARK = "- ESSDOCTORNEWRULE"
+
+
+def _auto_condense(doc: AgentDoc, base, r: dict) -> dict | None:
+    """Shorten an over-limit draft, keeping the added rule word for word; updates r and returns the condense result."""
+    text, clause = r["new_instructions"], (r.get("clause") or "").strip()
+    if not clause or clause not in text:
+        return None
+    masked = text.replace(clause, _RULE_MARK, 1)
+    target = DA_INSTRUCTION_LIMIT - (studio_len(clause) - studio_len(_RULE_MARK))
+    c = condense(from_instructions(masked, doc.name + " (draft)"), base, target)
+    if _RULE_MARK not in c["new_text"]:
+        return None
+    new_text = c["new_text"].replace(_RULE_MARK, clause, 1)
+    new_doc = from_instructions(new_text, doc.name + " (draft)")
+    new_doc.topics, new_doc.globals_defined = doc.topics, doc.globals_defined
+    new_doc.is_full_export, new_doc.content_moderation = doc.is_full_export, doc.content_moderation
+    before = {f.rule_id for f in validate(doc, base)}
+    r.update(new_instructions=new_text, diff=diff_docs(doc, new_doc),
+             introduced_findings=[f.to_dict() for f in validate(new_doc, base) if f.rule_id not in before])
+    return c
 
 
 _PLACE = {"knowledge_source_description": "the knowledge source's description",
@@ -387,10 +418,10 @@ _PLACE = {"knowledge_source_description": "the knowledge source's description",
           "topic_response_template": "those topics' response templates"}
 
 
-def _draft_report(a, intake, r: dict, before: int) -> str:
+def _draft_report(a, intake, r: dict, before: int, shortened: dict | None = None) -> str:
     after = studio_len(r["new_instructions"])
     blocks = [b for b in (r.get("diff") or {}).get("blocks") or [] if b.get("status") != "unchanged"]
-    section = ", ".join(re.sub(r"\s*\(.*$", "", b["title"]).strip() for b in blocks) or "Instructions"
+    section = r.get("section") or ", ".join(re.sub(r"\s*\(.*$", "", b["title"]).strip() for b in blocks) or "Instructions"
     new = r.get("introduced_findings") or []
     worst = next((s for s in ("high", "medium", "low") if any(f.get("severity") == s for f in new)), "")
     issues = ("✅ none" if not new else
@@ -408,6 +439,26 @@ def _draft_report(a, intake, r: dict, before: int) -> str:
         md += [f"> 💡 **Also put this in {_PLACE.get(place['target'], place['target'])}{owners}.** {_cell(place.get('why'))}", ""]
 
     checks = []
+    if shortened:
+        what = [s if isinstance(s, str) else s.get("what") or s.get("step") or "" for s in shortened.get("steps") or []]
+        what = [w for w in what if w][:3]
+        if after <= DA_INSTRUCTION_LIMIT:
+            checks.append(f"- ✂️ **Shortened automatically to fit:** {shortened['drafted']:,} → {after:,} characters"
+                          + (f" ({'; '.join(_cell(w) for w in what)})" if what else "")
+                          + ". The new rule is unchanged and every ESS ability is kept; review the changed lines under "
+                          "\"What changed\".")
+        else:
+            cands = [x if isinstance(x, str) else x.get("what") or x.get("text") or "" for x in shortened.get("candidates") or []]
+            cands = [_clip(c, 120) for c in cands if c][:3]
+            if not cands:
+                clause = (r.get("clause") or "").strip()
+                lines = [(i, ln) for i, ln in enumerate(r["new_instructions"].splitlines(), 1)
+                         if ln.strip() and ln.strip() != clause and not ln.lstrip().startswith("#")]
+                cands = [f"line {i} ({len(ln):,} characters: \"{_clip(ln.strip(), 60)}\")"
+                         for i, ln in sorted(lines, key=lambda x: -len(x[1]))[:2]]
+            checks.append(f"- ❌ **Still {after - DA_INSTRUCTION_LIMIT:,} characters over after shortening** "
+                          f"({shortened['drafted']:,} → {after:,}). Shorten or move into a topic description: "
+                          + "; ".join(cands) + ".")
     for f in new:
         checks.append(f"- {_SEV.get(f.get('severity'), '')} **{_cell(f.get('title'))}** (line {_lines(f)}): {_cell(f.get('fix'))}"
                       + (" Run `condense` on the draft." if f.get("rule_id") == "L0-LENGTH" else ""))
@@ -416,7 +467,7 @@ def _draft_report(a, intake, r: dict, before: int) -> str:
         checks.append(f"- ⚠️ {what} shares {', '.join(c.get('terms') or [])} with the change: {_cell(c.get('risk'))}")
     if r.get("source_note"):
         checks.append(f"- ⚠️ {_cell(r['source_note'])}")
-    if after > DA_INSTRUCTION_LIMIT and not any(f.get("rule_id") == "L0-LENGTH" for f in new):
+    if after > DA_INSTRUCTION_LIMIT and not shortened and not any(f.get("rule_id") == "L0-LENGTH" for f in new):
         checks.append(f"- ❌ The instructions are {after - DA_INSTRUCTION_LIMIT:,} characters over the limit: shorten them "
                       "(`condense`) before publishing, or Copilot Studio cuts off the end.")
     unused = [u for u in r.get("unused") or [] if _cell(u).strip(" .").lower() != _cell(intake.intent).strip(" .").lower()]
@@ -796,6 +847,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--intake", help="JSON file with the change details (subject, allowed, terms, format_spec, ...)")
     p.add_argument("--persona", **persona)
     p.add_argument("--out", default="outputs/drafted_instructions.txt")
+    p.add_argument("--no-condense", action="store_true", help="Don't shorten automatically when the draft is over the limit")
     p.add_argument("--evalset", help="Where to write the Copilot Studio evaluation test set CSV")
     p.add_argument("--no-evalset", action="store_true", help="Don't write the evaluation test set")
     p.set_defaults(fn=cmd_draft)
