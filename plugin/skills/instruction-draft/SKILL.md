@@ -43,11 +43,13 @@ If the draft report says more detail is needed, ask the maker those questions an
 1. Show the draft report (added text, where it went, what changed) as returned.
 2. Show the `check` report for the new version, highlighting "Findings introduced by this change". If the change introduced a high finding, say so plainly and propose a narrower wording, then re-run.
 3. You may suggest clearer wording for the added clause, but keep it in the same section, and re-run `check` on any edited version before offering it.
-4. Attach `outputs/drafted_instructions.txt` and list the example questions to test after publishing.
+4. Hand over `outputs/drafted_instructions.txt`: print it (`cat outputs/drafted_instructions.txt`) and show its full content, unchanged, inside one fenced code block marked `text`, then list the example questions to test after publishing.
 
 ## Applying
 
-The maker pastes the new instructions in Copilot Studio (**Overview > Instructions > Edit**), saves, publishes and tests in a new chat. You can't change the agent yourself.
+Tell the maker to copy the instructions with the code block's **Copy** button, not from the file preview: the preview shows the file as formatted Markdown, so numbered lines lose their numbers and blank lines disappear when copied. Keep line breaks, blank lines, numbering and `#` headings exactly as the engine wrote them.
+
+The maker pastes the new instructions in Copilot Studio (**Overview > Instructions > Edit**, select all the existing text, paste), saves, publishes and tests in a new chat. You can't change the agent yourself.
 
 ## Rules
 

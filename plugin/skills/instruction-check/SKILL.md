@@ -47,14 +47,20 @@ python3 scripts/essdoctor.py practices
 1. Show the engine's Markdown report as returned. Don't rewrite, reorder or drop findings, and don't add findings of your own.
 2. Then give a short plain-language summary: the 1–3 findings most likely behind the maker's complaint, quoting the line numbers, what employees see, and the fix.
 3. Offer the next action:
-   - **Fix**: run `fix` (all, or only the rule IDs the maker picks), show the report, and attach `outputs/fixed_instructions.txt`.
+   - **Fix**: run `fix` (all, or only the rule IDs the maker picks), show the report, and hand over `outputs/fixed_instructions.txt` as described in "Applying a fix".
    - **Shorten**: when the length is over 8,000 characters as Copilot Studio counts them, run `condense`.
    - **Re-test**: list the "Questions to test" from the report.
 4. After a fix, run `check` again on the fixed file and confirm the high findings are gone.
 
 ## Applying a fix
 
-The maker applies the new instructions in Copilot Studio: open the agent, **Overview > Instructions > Edit**, replace the text with the fixed file's content, save, **Publish**, then test in a new chat. For agents under ALM (Git), the change goes into the agent's instructions file in the repo and through the normal deploy.
+Hand the new instructions to the maker so their formatting survives the copy:
+
+1. Print the file (`cat outputs/fixed_instructions.txt`) and show its full content, unchanged, inside one fenced code block marked `text`.
+2. Tell the maker to copy it with the code block's **Copy** button. Don't send them to the file preview: it shows the file as formatted Markdown, so numbered lines lose their numbers and blank lines disappear when copied.
+3. Keep line breaks, blank lines, numbering and `#` headings exactly as the engine wrote them. If you have to change a line by hand, edit only that line.
+
+The maker applies the new instructions in Copilot Studio: open the agent, **Overview > Instructions > Edit**, select all the existing text, paste, save, **Publish**, then test in a new chat. For agents under ALM (Git), the change goes into the agent's instructions file in the repo and through the normal deploy.
 
 When the instructions were read through the Business apps connector, you can write the fix back, but only after the maker explicitly asks you to:
 
