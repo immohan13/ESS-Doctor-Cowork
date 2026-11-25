@@ -433,6 +433,6 @@ def test_draft_over_limit_is_shortened_automatically_keeping_the_new_rule():
             assert essdoctor_cli.main(["draft", str(src), "--intake", str(req), "--out", str(out)]) == 0
         text = out.read_text(encoding="utf-8")
 
-    assert "Shortened automatically to fit" in buf.getvalue()
+    assert "Shortened automatically:" in buf.getvalue() and "10% buffer" in buf.getvalue()
     assert disclaimer in text
     assert essdoctor_cli.studio_len(text) <= 8000

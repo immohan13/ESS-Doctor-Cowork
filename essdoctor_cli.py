@@ -19,7 +19,7 @@ from ess_maker.doctor.agent_file import AgentDoc, from_instructions, parse_text
 from ess_maker.doctor.blocks import diff_docs
 from ess_maker.doctor.condense import condense, studio_len
 from ess_maker.doctor.drafter import CHANGE_TYPES, Intake, draft
-from ess_maker.doctor.fixes import fix
+from ess_maker.doctor.fixes import LENGTH_TARGET, fix
 from ess_maker.doctor.rules import CORE_BLOCKS, DA_INSTRUCTION_LIMIT, core_presence, validate
 
 TEMPLATE_MODERATION = {"hr": "Medium", "it": "Medium", "hub": "High"}
@@ -399,7 +399,7 @@ def _auto_condense(doc: AgentDoc, base, r: dict) -> dict | None:
     if not clause or clause not in text:
         return None
     masked = text.replace(clause, _RULE_MARK, 1)
-    target = DA_INSTRUCTION_LIMIT - (studio_len(clause) - studio_len(_RULE_MARK))
+    target = LENGTH_TARGET - (studio_len(clause) - studio_len(_RULE_MARK))
     c = condense(from_instructions(masked, doc.name + " (draft)"), base, target)
     if _RULE_MARK not in c["new_text"]:
         return None
@@ -416,6 +416,21 @@ def _auto_condense(doc: AgentDoc, base, r: dict) -> dict | None:
 _PLACE = {"knowledge_source_description": "the knowledge source's description",
           "topic_description": "the descriptions of the topics that own this subject",
           "topic_response_template": "those topics' response templates"}
+
+
+def _shorten_candidates(r: dict, shortened: dict) -> list[str]:
+    """Up to three lines to shorten or move: condense's candidates (not ESS core lines), else the longest lines."""
+    clause = (r.get("clause") or "").strip()
+    out = [f"line {c['line']} ({c['chars']:,} characters: \"{_clip(c.get('excerpt', ''), 60)}\")"
+           + (f" → {c['move_to']}" if c.get("move_to") and c["move_to"] != "shorter wording" else "")
+           for c in shortened.get("candidates") or [] if isinstance(c, dict) and not c.get("ess_core")
+           and clause[:60] not in (c.get("excerpt") or "")][:3]
+    if not out:
+        lines = [(i, ln) for i, ln in enumerate(r["new_instructions"].splitlines(), 1)
+                 if ln.strip() and ln.strip() != clause and not ln.lstrip().startswith("#")]
+        out = [f"line {i} ({len(ln):,} characters: \"{_clip(ln.strip(), 60)}\")"
+               for i, ln in sorted(lines, key=lambda x: -len(x[1]))[:2]]
+    return out
 
 
 def _draft_report(a, intake, r: dict, before: int, shortened: dict | None = None) -> str:
@@ -440,22 +455,20 @@ def _draft_report(a, intake, r: dict, before: int, shortened: dict | None = None
 
     checks = []
     if shortened:
-        what = [s if isinstance(s, str) else s.get("what") or s.get("step") or "" for s in shortened.get("steps") or []]
+        what = [s if isinstance(s, str) else s.get("what") or s.get("step") or "" for s in shortened.get("steps") or []
+                if isinstance(s, str) or s.get("applied", True)]
         what = [w for w in what if w][:3]
+        cands = _shorten_candidates(r, shortened)
         if after <= DA_INSTRUCTION_LIMIT:
-            checks.append(f"- ✂️ **Shortened automatically to fit:** {shortened['drafted']:,} → {after:,} characters"
+            buffer = (f"under the {LENGTH_TARGET:,} target, keeping a 10% buffer" if after <= LENGTH_TARGET else
+                      f"under the {DA_INSTRUCTION_LIMIT:,} limit but above the {LENGTH_TARGET:,} target (10% buffer)")
+            checks.append(f"- ✂️ **Shortened automatically:** {shortened['drafted']:,} → {after:,} characters, {buffer}"
                           + (f" ({'; '.join(_cell(w) for w in what)})" if what else "")
                           + ". The new rule is unchanged and every ESS ability is kept; review the changed lines under "
-                          "\"What changed\".")
+                          "\"What changed\"."
+                          + (" To restore the buffer, shorten or move into a topic description: " + "; ".join(cands) + "."
+                             if after > LENGTH_TARGET and cands else ""))
         else:
-            cands = [x if isinstance(x, str) else x.get("what") or x.get("text") or "" for x in shortened.get("candidates") or []]
-            cands = [_clip(c, 120) for c in cands if c][:3]
-            if not cands:
-                clause = (r.get("clause") or "").strip()
-                lines = [(i, ln) for i, ln in enumerate(r["new_instructions"].splitlines(), 1)
-                         if ln.strip() and ln.strip() != clause and not ln.lstrip().startswith("#")]
-                cands = [f"line {i} ({len(ln):,} characters: \"{_clip(ln.strip(), 60)}\")"
-                         for i, ln in sorted(lines, key=lambda x: -len(x[1]))[:2]]
             checks.append(f"- ❌ **Still {after - DA_INSTRUCTION_LIMIT:,} characters over after shortening** "
                           f"({shortened['drafted']:,} → {after:,}). Shorten or move into a topic description: "
                           + "; ".join(cands) + ".")
@@ -833,7 +846,8 @@ def main(argv: list[str] | None = None) -> int:
 
     p = sub.add_parser("condense", help="Shorten instructions to a character target without losing abilities")
     p.add_argument("instructions")
-    p.add_argument("--target", type=int, default=DA_INSTRUCTION_LIMIT)
+    p.add_argument("--target", type=int, default=LENGTH_TARGET,
+                   help="Length to aim for as Copilot Studio counts it (default: 90%% of the limit, a 10%% buffer)")
     p.add_argument("--persona", **persona)
     p.add_argument("--out", default="outputs/shortened_instructions.txt")
     p.add_argument("--evalset", help="Where to write the Copilot Studio evaluation test set CSV")

@@ -51,7 +51,7 @@ If the draft report says more detail is needed, ask the maker those questions an
 ## Respond
 
 1. Show the draft report as returned, as Markdown (not in a code block), so its summary table, test table and checks render. Don't rebuild its tables.
-2. `draft` shortens the instructions automatically when the change takes them over the 8,000-character limit (the new rule is kept word for word, and every ESS ability is kept); the report says what it tightened, or which lines to shorten if it's still over. Don't shorten lines yourself. If it's still over, tell the maker which line to move into a topic description, or offer to run `condense` with a lower `--target` and `--no-evalset`.
+2. `draft` shortens the instructions automatically when the change takes them over the 8,000-character limit, aiming for 7,200 to leave a 10% buffer (the new rule is kept word for word, and every ESS ability is kept); the report says what it tightened, or which lines to shorten if it's still over. Don't shorten lines yourself. If it's still over, tell the maker which line to move into a topic description, or offer to run `condense` with a lower `--target` and `--no-evalset`.
 3. Run `check --no-evalset` on the final file. If it introduced a high finding, say so plainly, propose a narrower wording in the same section and re-run. You may suggest clearer wording for the added clause, but re-run `check` on any edited version before offering it.
 4. Then add **What to check** in at most three bullets: what the report flags, any assumption you made (for example how the agent knows who the rule applies to), and whether the new rule's subject or source name overlaps a restriction already in the instructions (for example a source whose name contains a restricted word). Don't repeat the report's tables.
 5. Then **Final instructions**: print the final file (`cat`) and show its full content, unchanged, inside one fenced code block marked `text`. Put it last so the maker doesn't scroll past it, with the copy steps from "Applying" in one line under it.
@@ -66,5 +66,5 @@ The maker pastes the new instructions in Copilot Studio (**Overview > Instructio
 
 ## Rules
 
-- Stay within 8,000 characters as Copilot Studio counts them; if the draft goes over, use the `instruction-check` skill's `condense` step.
+- Stay within 8,000 characters as Copilot Studio counts them, ideally 7,200 (a 10% buffer); `draft` shortens automatically when it goes over.
 - Don't remove or rewrite the ESS core blocks (routing, grounding, tool use) to make room for a change.
