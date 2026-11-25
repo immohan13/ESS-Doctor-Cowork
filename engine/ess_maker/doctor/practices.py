@@ -235,7 +235,8 @@ CHECKS: dict[str, tuple] = {
     "P16": ("answer", r"search_query|query rule|own words|search with the (user|employee)",
             "- Search with the employee's own words plus only context that changes the answer; never add names, "
             "IDs or statuses to the query.", "grounding", "Ungrounded / poor answer", "low"),
-    "P17": ("augment", r"only when (it|they) can change|only when (the )?(policy|answer) (varies|changes|differs)|not to narrow",
+    "P17": ("augment", r"only when (it|they) can change|only when (the )?(policy|answer) (varies|changes|differs)|not to narrow"
+                       r"|only for (policies|questions|programs)[^.\n]{0,30}\b(vary|varies|differ)",
             "- Add country or role to a search only when the policy differs by it.", "grounding",
             "Ungrounded / poor answer", "low"),
     "P19": ("answer", r"at most (one|1)\b|at most once more|one synonym retry|retry once",

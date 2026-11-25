@@ -218,12 +218,18 @@ def _cea_skip(f) -> bool:
 _ORDER = {"high": 0, "medium": 1, "low": 2, "info": 3}
 
 
+_COVERS = {"L5-OVER-AUGMENTED-QUERY": ("BP-P17",), "L5-QUERY-REWRITE": ("BP-P17",), "L5-CONTEXT-IN-SEARCH": ("BP-P17",)}
+
+
 def _check_items(doc: AgentDoc, base, cea: bool) -> tuple[list[dict], list[dict], list[dict], dict]:
     """Findings, own practice gaps and template-shared gaps in report order (numbered 1..n across all three)."""
     findings = [f.to_dict() for f in validate(doc, base) if not (cea and _cea_skip(f))]
     findings.sort(key=lambda f: (_ORDER.get(f["severity"], 9), f["origin"] == "template"))
     gaps, card = practices.check(doc)
     base_gaps = set(practices.check(base)[1]["gaps"]) if base else set()
+    # A finding whose fix already writes the practice's rule: don't recommend the practice separately.
+    covered = {p for f in findings for p in _COVERS.get(f["rule_id"], ())}
+    gaps = [g for g in gaps if g.rule_id not in covered]
     own = [g.to_dict() for g in gaps if g.rule_id not in base_gaps]
     shared = [g.to_dict() for g in gaps if g.rule_id in base_gaps]
     return findings, own, shared, card
@@ -580,7 +586,26 @@ def cmd_fix(a) -> str:
         md += [f"{len(left_shared)} optional practice(s) not added; ask ESS Doctor to \"fix all\" to include them.", ""]
     if r["tests"]:
         md += ["### Re-test with", ""] + [f"- {t}" for t in r["tests"][:10]] + [""]
-    md += _evalset(a, r["tests"], a.out)
+    tests = list(r["tests"])
+    if getattr(a, "draft", None):
+        fields = json.loads(_text(_read(a.draft)))
+        fixed_doc = load_agent(a.out)
+        intake, dr, short = _do_draft(fixed_doc, base, fields, getattr(a, "no_condense", False))
+        if "new_instructions" not in dr:
+            md += ["### Rule not added", "", "The rule from the diagnosis needs more detail: "
+                   + "; ".join(_cell(q if isinstance(q, str) else q.get("question") or q) for q in dr.get("questions") or [])
+                   + ".", ""]
+        else:
+            _write(a.out, dr["new_instructions"])
+            final = studio_len(dr["new_instructions"])
+            mark = "❌" if final > DA_INSTRUCTION_LIMIT else "⚠️" if final > LENGTH_TARGET else "✅"
+            md += [f"### Also added: {CHANGE_TYPES[intake.change_type].split(' (')[0].lower()} rule", "",
+                   f"Goes in **{_cell(dr.get('section') or 'Instructions')}**. Length now {mark} {final:,} of "
+                   f"{DA_INSTRUCTION_LIMIT:,}" + (" (existing text tightened to fit; the new rule is word for word)"
+                                                   if short else "") + ".", "",
+                   _diff_md({**dr["diff"], "char_delta": 0, "moderation_changed": False}), ""]
+            tests += [t for t in dr.get("tests") or [] if t not in tests]
+    md += _evalset(a, tests, a.out)
     return "\n".join(md)
 
 
@@ -625,17 +650,33 @@ def _run_sync(coro):
     raise RuntimeError("The drafter tried to wait on I/O; the Cowork build runs without an LLM.")
 
 
+def _do_draft(doc: AgentDoc, base, fields: dict, no_condense: bool = False):
+    """Run the drafter on doc: (intake, result, shortened) — result has no 'new_instructions' when it needs detail."""
+    if fields.get("change_type") not in CHANGE_TYPES:
+        raise InputError(f"--type must be one of: {', '.join(CHANGE_TYPES)}")
+    known = set(Intake.__dataclass_fields__)
+    intake = Intake(**{k: v for k, v in fields.items() if k in known})
+    r = _run_sync(draft(intake, doc, base, use_llm=False))
+    shortened = None
+    if "new_instructions" not in r:
+        return intake, r, None
+    r["section"] = ", ".join(re.sub(r"\s*\(.*$", "", b["title"]).strip()
+                             for b in (r.get("diff") or {}).get("blocks") or [] if b.get("status") != "unchanged")
+    if studio_len(r["new_instructions"]) > DA_INSTRUCTION_LIMIT and not no_condense:
+        drafted = studio_len(r["new_instructions"])
+        shortened = _auto_condense(doc, base, r)
+        if shortened:
+            shortened["drafted"] = drafted
+    return intake, r, shortened
+
+
 def cmd_draft(a) -> str:
     doc = load_agent(a.instructions)
     base = baseline(_persona(a.persona, doc))
     fields = json.loads(_text(_read(a.intake))) if a.intake else {}
     fields.setdefault("change_type", a.type)
     fields.setdefault("intent", a.intent or "")
-    if fields["change_type"] not in CHANGE_TYPES:
-        raise InputError(f"--type must be one of: {', '.join(CHANGE_TYPES)}")
-    known = set(Intake.__dataclass_fields__)
-    intake = Intake(**{k: v for k, v in fields.items() if k in known})
-    r = _run_sync(draft(intake, doc, base, use_llm=False))
+    intake, r, shortened = _do_draft(doc, base, fields, getattr(a, "no_condense", False))
     if "new_instructions" not in r:
         md = ["## ESS Doctor draft: more detail needed", ""]
         if r.get("message"):
@@ -643,14 +684,6 @@ def cmd_draft(a) -> str:
         md += [f"- {_cell(q if isinstance(q, str) else q.get('question') or q.get('label') or q)}"
                for q in r.get("questions") or r.get("needs_input") or []]
         return "\n".join(md)
-    shortened = None
-    r["section"] = ", ".join(re.sub(r"\s*\(.*$", "", b["title"]).strip()
-                             for b in (r.get("diff") or {}).get("blocks") or [] if b.get("status") != "unchanged")
-    if studio_len(r["new_instructions"]) > DA_INSTRUCTION_LIMIT and not getattr(a, "no_condense", False):
-        drafted = studio_len(r["new_instructions"])
-        shortened = _auto_condense(doc, base, r)
-        if shortened:
-            shortened["drafted"] = drafted
     _write(a.out, r["new_instructions"])
     return _draft_report(a, intake, r, studio_len(doc.instruction_text), shortened)
 
@@ -887,7 +920,7 @@ def _xray(a, ctx: dict) -> str:
         return "```text\n" + transcript.build(text, question=a.question, response=a.response, current=current) + "\n```"
     sessions = transcript.load_sessions(text)
     if sessions:
-        return _sessions_report(sessions, a.question or "")
+        return _sessions_report(sessions, a.question or "", current)
     if not devmode.looks_like_devmode(text):
         raise InputError("Couldn't recognise this evidence. Paste the developer mode (-developer on) card or its Raw info "
                          "JSON, upload a Purview audit export (CSV with an AuditData column), or, if Microsoft support is "
@@ -922,8 +955,49 @@ _CONTEXT_RULE = ("- When the answer depends on the employee's country, office, e
                  "policy and list how it varies; don't present one country's policy as theirs.")
 
 
-def _sessions_report(sessions: list[dict], question: str = "") -> str:
-    """Monitor > Sessions download: a verdict per session from the reply text, grouped causes and fixes."""
+def _context_rule_md(question: str, missing: str, doc: AgentDoc | None, intake_path: str) -> list[str]:
+    """The blank-profile-value rule as the drafter writes it: its exact section and line when the instructions are
+    known, and saved as a draft intake so `fix --draft` can add it together with the fixes."""
+    fields = {"change_type": "context", "subject": missing, "should_affect": [question], "must_not_affect": [],
+              "intent": "When a profile value the answer depends on is blank, ask for it or give the base policy "
+                        "and how it varies, instead of a generic answer."}
+    placed = None
+    if doc is not None and doc.instruction_text.strip():
+        try:
+            _, placed, _ = _do_draft(doc, baseline(guess_persona(doc)), fields, True)
+        except Exception:  # noqa: BLE001 - fall back to the general wording
+            placed = None
+        placed = placed if placed and "new_instructions" in placed else None
+    _write(intake_path, json.dumps(fields, indent=2))
+    out = []
+    if placed:
+        block = next((b for b in placed["diff"].get("blocks") or [] if b["status"] != "unchanged"), None)
+        line = next((h.get("line") for h in (block or {}).get("hunks") or [] if h.get("line")), None)
+        section = re.sub(r"\s*\(.*$", "", block["title"]).strip() if block else "Context handling"
+        lines = doc.instruction_text.splitlines()
+        prev = next((lines[i].strip() for i in range((line or 1) - 2, -1, -1) if 0 <= i < len(lines) and lines[i].strip()), "")
+        out += [f"   **Proposed instruction:** a new line at the end of your **{_cell(section)}** section"
+                + (f" (line {line})" if line else "")
+                + (f", right after *\"{_clip(_cell(prev), 90)}\"*" if prev else "") + ":", ""]
+        out += _indent(_diff_md({**placed["diff"], "char_delta": 0, "moderation_changed": False}), "   ") + [""]
+    else:
+        clause = _CONTEXT_RULE
+        try:
+            _, d0, _ = _do_draft(from_instructions("#Context handling\n- Use the user profile.\n", "template"), None, fields, True)
+            clause = (d0.get("clause") or clause).strip()
+        except Exception:  # noqa: BLE001
+            pass
+        out += ["   **Proposed instruction:** add it as the last line of the section that lists the employee's profile "
+                "(`user_profile`); in the ESS HR template that's **#Context handling**, right after the search examples. "
+                "Upload the instructions or a test pane snapshot to see the exact line.", ""]
+        out += _indent("\n".join(_diff_block(["+ " + clause])), "   ") + [""]
+    return out + [f"   <!-- essdoctor-intake: {intake_path} -->", ""]
+
+
+def _sessions_report(sessions: list[dict], question: str = "", doc: AgentDoc | None = None,
+                     intake_path: str = "outputs/intake_context.json") -> str:
+    """Monitor > Sessions download: a verdict per session from the reply text, grouped causes and fixes.
+    With the instructions (doc), the blank-value rule is drafted into its exact section and line."""
     from ess_maker.doctor import transcript
 
     from datetime import datetime as _dt
@@ -980,8 +1054,7 @@ def _sessions_report(sessions: list[dict], question: str = "") -> str:
                    f"   - **Who fixes it:** {owner}",
                    f"   - **Fix:** {fix}", ""]
             if kind == "generic":
-                md += ["   **Proposed instruction** (add under the section that handles user context):", ""]
-                md += _indent("\n".join(_diff_block(["+ " + _CONTEXT_RULE])), "   ") + [""]
+                md += _context_rule_md(items[0][1]["question"], missing, doc, intake_path)
     failed_q = [f'"{_cell(x["question"])[:60]}"' for kind in ("fallback", "declined", "error", "empty", "generic")
                 for _, x in groups.get(kind, [])]
     md += ["### Next steps", ""]
@@ -1456,8 +1529,12 @@ def cmd_plan(a) -> str:
     md = ["## ESS Doctor plan", "",
           "| File | What it is | Agent type | Skill | Command |", "| --- | --- | --- | --- | --- |"]
     steps: list[str] = []
+    ins_src = next((p for p, _, _, _, k in rows if k in ("instructions", "snapshot")), "")
     for path, name, what, t, key in rows:
         skill, cmd, why = _PLAN.get(key, ("", "", ""))
+        if ins_src and ins_src != path and key in ("sessions", "transcript", "devmode") and cmd.startswith("xray"):
+            # The X-ray places proposed rules on exact lines when it has the instructions.
+            cmd += f' --instructions "{ins_src}"'
         if key == "snapshot" and "without a question" in what:
             skill, cmd, why = "instruction-check", f'check "{path}"', \
                 "No question in it, so it's used for the agent's instructions and setup, not an X-ray"
@@ -1542,6 +1619,7 @@ def main(argv: list[str] | None = None) -> int:
                                    "the recommended additions), 'all' (also the optional practices), or rule IDs "
                                    "(default: all findings, no practices)")
     p.add_argument("--no-condense", action="store_true", help="Don't shorten automatically when the fixes go over the limit")
+    p.add_argument("--draft", help="Also add a drafted rule (intake JSON, for example the one an X-ray saved) to the fixed text")
     p.add_argument("--persona", **persona)
     p.add_argument("--agent-type", **agent_type)
     p.add_argument("--out", default="outputs/fixed_instructions.txt")

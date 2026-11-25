@@ -382,12 +382,11 @@ def test_check_report_orders_findings_and_splits_practice_gaps():
         assert essdoctor_cli.main(["check", "samples/inputs/contoso_instructions.txt", "--persona", "hr", "--no-evalset"]) == 0
     report = out.getvalue()
 
-    assert report.index("### Fix first") < report.index("### ESS core blocks") < report.index("### Recommended additions")
+    assert report.index("### Fix first") < report.index("### ESS core blocks") < report.index("**Optional:**")
     first = report.split("### Fix first", 1)[1].split("\n2. ", 1)[0]
     assert "🔴" in first and "**Employees see:**" in first and "**Fix:**" in first
     assert "**Proposed change:**" in report
-    practices_part = report.split("### Recommended additions", 1)[1]
-    assert "```diff\n" in practices_part and "\n+ " in practices_part and "Covers: " in practices_part
+    assert "Use context to prioritize" not in report  # covered by the job-level finding's fix
     assert not re.search(r"`(L\d|BP)-[A-Z]", report) and "Line 1065" not in report
     assert "Copilot Studio count" in report
 
@@ -876,3 +875,35 @@ def test_no_customer_names_in_shipped_text():
     hits += [f for f in ("README.md", "essdoctor_cli.py", "build.py")
              if (root / f).exists() and names.search((root / f).read_text(encoding="utf-8", errors="ignore"))]
     assert not hits, hits
+
+def test_sessions_xray_places_the_blank_details_rule_and_fix_adds_it():
+    import contextlib
+    import os
+    import tempfile
+    from pathlib import Path
+    import essdoctor_cli
+
+    ins = ("# Core identity\nYou are an HR assistant.\n\n# Context handling\nuser_profile =\n- 'Country': {Global.Country}\n"
+           "- \"What are some good training programs?\" -> \"training programs for {Global.ESS_UserContext_Level} \" "
+           "(query augmented with the user's Job Title: {Global.ESS_UserContext_Level}).\n\n# Format\n- Be brief.\n")
+    with tempfile.TemporaryDirectory() as d:
+        cwd = os.getcwd()
+        os.chdir(d)
+        try:
+            Path("s.csv").write_text(_SESSIONS_CSV, encoding="utf-8")
+            Path("i.txt").write_text(ins, encoding="utf-8")
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                assert essdoctor_cli.main(["xray", "s.csv", "--instructions", "i.txt"]) == 0
+            md = out.getvalue()
+            assert "a new line at the end of your **Context handling** section (line" in md and "right after" in md
+            assert "<!-- essdoctor-intake: outputs/intake_context.json -->" in md
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                assert essdoctor_cli.main(["fix", "i.txt", "--rules", "recommended", "--draft", "outputs/intake_context.json",
+                                           "--agent-type", "cea", "--out", "f.txt", "--no-evalset"]) == 0
+            fixed = Path("f.txt").read_text(encoding="utf-8")
+        finally:
+            os.chdir(cwd)
+    assert "### Also added: employee context rule" in out.getvalue() and "If one is blank" in fixed
+    assert "Add country or role to a search" not in fixed  # the job-level fix already covers it

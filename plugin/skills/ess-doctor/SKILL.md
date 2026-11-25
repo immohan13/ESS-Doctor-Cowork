@@ -32,6 +32,7 @@ For each step, follow that skill's own `SKILL.md` (its Run, Respond and Rules se
 | "It says sorry too often", many conversations | `sorry-triage` | `sorry-triage` |
 | "Check / review / validate my instructions" | `instruction-check` | `check` |
 | "Fix all", "fix 1 and 2", "add the recommended practices", "apply the fixes" | `instruction-check` | `fix --rules 1,2`, `--rules recommended` or `--rules all` |
+| "fix recommended + <rule>" (a rule a report saved) | `instruction-check` | `fix --rules recommended --draft <path from essdoctor-intake>` |
 | "It's too long", "shorten" | `instruction-check` | `condense` |
 | "Add a rule / don't talk about X / use this format / add a synonym" | `instruction-draft` | `draft` |
 | Evaluation results CSV, or two of them (before and after) | `eval-triage` | `eval-triage` / `eval-compare` |
@@ -50,7 +51,7 @@ Chain the skills the way their reports point, without waiting to be asked:
 - A test pane snapshot "without a question" (the plan says so): don't X-ray it on its own; it adds the agent's instructions and setup, so pass it with `sorry-triage` and use it for `check`. Ask the maker for a snapshot saved right after the failing answer if they want a step-by-step X-ray.
 - A report that names instruction lines: `instruction-check` (`check`, then `fix` when the maker agrees). For a CEA, pass `--agent-type cea`.
 - Any instruction change (`fix`, `draft`, `condense`): share the `outputs/evalset.csv` it wrote; after the maker re-runs the evaluation, `eval-compare` the before and after results.
-- Make **one** instruction change per reply: the one the evidence points to most (a `draft` for a missing rule, or `fix` for the check's findings). If both are needed, run the second on the first one's output file so the final instructions contain both, never two separate files. Offer anything else as the next step.
+- Make **one** instruction change per reply: the one the evidence points to most (a `draft` for a missing rule, or `fix` for the check's findings). When a report proposes a new rule it saves it and ends that part with `<!-- essdoctor-intake: <path> -->`; to apply the fixes and that rule together, run `fix --rules recommended --draft <path>` — that is one change with one final file. Offer anything else as the next step.
 
 ## 3. Respond
 
@@ -63,7 +64,13 @@ Give each part a level-4 heading with its emoji (shown below) and separate every
 3. `#### 📋 Other checks`: one line per other report with its key result, for example _"Sorry triage: 3 of 3 sorries are maker-fixable (2 no match, 1 missing employee details)."_ End with "Ask for any of these to see the full report."
 4. `#### 🛠️ Changes to make`, only if a step changed the instructions: the change's `diff` blocks as returned; then the changes made in Copilot Studio rather than in the instructions (topics, knowledge sources, settings), as a short list.
 5. `#### 📄 Final instructions`, only if a step changed the instructions: print the final file (`cat`) and show its full content, unchanged, in one fenced `text` code block, so the maker copies it with the code block's **Copy** button. Never tell the maker to open the `.txt` file instead: a file preview renders it as Markdown and drops numbering and blank lines. Under it, one line: paste it in Copilot Studio > **Overview > Instructions > Edit** (select all, paste), save, **Publish**, test in a new chat.
-6. `#### ✅ Test and next step`: share `outputs/evalset.csv` with the four import steps on one line each, then one question offering the next step.
+6. `#### ✅ Test and next step`: share `outputs/evalset.csv` with the four import steps on one line each. Then **What next? Reply with one of these:** as a short list of at most three choices. Each choice starts with the bold words the maker types back, then exactly what it does, taken from what the command does, never more:
+   - **"fix recommended"**: all findings plus the recommended additions (`fix --rules recommended`).
+   - **"fix recommended + <rule name>"** (for example "fix recommended + blank-details rule"), only when a report saved a rule (`essdoctor-intake`): the same plus that rule, as one instruction change (`fix --rules recommended --draft <path>`).
+   - **"fix 1"** (finding numbers) or **"fix all"** (adds the optional practices); a non-instruction step, such as **"X-ray the failed sessions"**, when evidence is missing.
+
+   Say in one line what stays outside the instructions (for example the user context topic or missing knowledge). Never promise that a choice includes a rule or change its command doesn't make.
+
 7. **Produced by** (always last, after a final divider, also for a single skill; no heading): one short line in italics with the version and the skills in the order you ran them, for example _"Produced by ESS Doctor 2.11.2 · transcript-xray → sorry-triage → instruction-draft"_. Take them from the `<!-- essdoctor: … -->` line at the end of each engine output. Don't show engine command names, backticks or brackets in it, and don't show the comment lines themselves anywhere in the reply.
 
 Refer to findings by number and title, never by internal rule IDs. No other headings or dividers.

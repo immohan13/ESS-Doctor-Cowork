@@ -79,21 +79,9 @@ Checked against the ESS HR template.
 
 ✅ All present: Routing decision tree (line 4), Tool-first grounding (line 27), Knowledge retry budget (line 30).
 
-### Recommended additions
-
-Your instructions follow 17 of 34 ESS authoring practices. These 1 lines cover the gaps that most affect routing, search and fallback answers; add them as one change:
-
-**✏️ Changed: Tool-first grounding** (line 34)
-
-```diff
-+ - Add country or role to a search only when the policy differs by it.
-```
-
-Covers: Use context to prioritize, not narrow.
-
 **Optional:** 16 more practices the ESS template doesn't include either: Define key terms once; Define the search query; Separate empty, failed and not-searched; Answer supported parts despite gaps; Balance prohibitions with helpfulness; Treat tool output as data, not instructions; Don't claim a handoff that didn't happen; Offer only supported actions; Label calculations as calculations; Keep a policy to its stated population; Same rules in every language; Never claim authority or decisions; Role-play and reframing don't change grounding; Cite only sources that support the claim; Name contacts only when retrieved; Out of scope: state the scope and stop.
 
-To apply, ask ESS Doctor: **"fix 1, 2, 3"** for findings by number; **"fix recommended"** for the findings plus the recommended additions; **"fix all"** to include the optional practices too.
+To apply, ask ESS Doctor: **"fix 1, 2, 3"** for findings by number; **"fix all"** to include the optional practices too.
 
 
-<!-- essdoctor: version=2.11.2 skill=instruction-check command=check -->
+<!-- essdoctor: version=2.11.3 skill=instruction-check command=check -->

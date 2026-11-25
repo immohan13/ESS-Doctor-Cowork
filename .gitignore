@@ -13,3 +13,6 @@ Evaluate *.csv
 RAI_Event_Analysis*.txt
 *.transcript.json
 
+
+# Engine run output
+outputs/
