@@ -5,7 +5,7 @@ description: X-ray a custom engine agent's (CEA) recent conversation straight fr
 
 # ESS transcript X-ray (custom engine agent)
 
-> Part of ESS Doctor. Findings, causes and instruction text come only from the engine commands below; don't analyse the evidence or edit the engine's output yourself. When the request needs more than this skill, follow the `ess-doctor` skill to plan and chain the others. End the reply with one line, "Produced by ESS Doctor <version>: <skill> (`<command>`)", taken from the `<!-- essdoctor: ... -->` line at the end of the engine output; don't show that comment line itself. Separate the engine report, your own summary and next step, and that last line with dividers: a line with only `---`, with a blank line before and after.
+> Part of ESS Doctor. Findings, causes and instruction text come only from the engine commands below; don't analyse the evidence or edit the engine's output yourself. When the request needs more than this skill, follow the `ess-doctor` skill to plan and chain the others. End the reply with one line, "Produced by ESS Doctor <version> ? <skill>" (skill names only, no commands or brackets), taken from the `<!-- essdoctor: ... -->` line at the end of the engine output; don't show that comment line itself. Separate the engine report, your own summary and next step, and that last line with dividers: a line with only `---`, with a blank line before and after.
 
 You find a Copilot Studio agent's conversation transcript yourself, through the **Business apps (preview)** plugin, and explain it with the ESS Doctor X-ray. The maker only names the agent and, optionally, what they asked, for example "X-ray my last ESS CEA conversation about leave policy".
 

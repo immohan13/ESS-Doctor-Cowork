@@ -382,12 +382,12 @@ def test_check_report_orders_findings_and_splits_practice_gaps():
         assert essdoctor_cli.main(["check", "samples/inputs/contoso_instructions.txt", "--persona", "hr", "--no-evalset"]) == 0
     report = out.getvalue()
 
-    assert report.index("### Fix first") < report.index("### ESS core blocks") < report.index("### Authoring practices")
+    assert report.index("### Fix first") < report.index("### ESS core blocks") < report.index("### Recommended additions")
     first = report.split("### Fix first", 1)[1].split("\n2. ", 1)[0]
     assert "🔴" in first and "**Employees see:**" in first and "**Fix:**" in first
     assert "**Proposed change:**" in report
-    practices_part = report.split("### Authoring practices", 1)[1]
-    assert "```diff\n" in practices_part and "\n   + " in practices_part
+    practices_part = report.split("### Recommended additions", 1)[1]
+    assert "```diff\n" in practices_part and "\n+ " in practices_part and "Covers: " in practices_part
     assert not re.search(r"`(L\d|BP)-[A-Z]", report) and "Line 1065" not in report
     assert "Copilot Studio count" in report
 
@@ -656,12 +656,22 @@ def test_check_skips_core_blocks_for_cea_and_fix_takes_finding_numbers():
                 assert essdoctor_cli.main(["check", str(src), "--persona", "hr", "--agent-type", kind, "--no-evalset"]) == 0
             reports[kind] = out.getvalue()
         assert "ESS core block missing" in reports["da"] and "ESS core block missing" not in reports["cea"]
-        assert "\n1. **" in reports["cea"] and not re.search(r"`(L\d|BP)-", reports["cea"])
+        assert not re.search(r"`(L\d|BP)-", reports["cea"])
+        # Numbers address findings only; this text has none, so "1" is refused with the practice options.
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
+            assert essdoctor_cli.main(["fix", str(src), "--rules", "1", "--agent-type", "cea", "--out", str(Path(d) / "f.txt"),
+                                       "--no-evalset"]) != 0
+        assert "'recommended'" in err.getvalue()
+        # Practices are one combined change, never numbered; 'recommended' adds them with the findings.
+        cea = reports["cea"]
+        assert "### Recommended additions" in cea and "Covers: " in cea and "\n2. " not in cea
+        assert '"fix recommended"' in cea and "ESS core blocks" not in cea.split("|\n", 3)[-1]
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
-            assert essdoctor_cli.main(["fix", str(src), "--rules", "1", "--agent-type", "cea", "--out", str(Path(d) / "f.txt"),
-                                       "--no-evalset"]) == 0
-        assert "Applied 1 fix(es)" in out.getvalue()
+            assert essdoctor_cli.main(["fix", str(src), "--rules", "recommended", "--agent-type", "cea", "--out",
+                                       str(Path(d) / "r.txt"), "--no-evalset"]) == 0
+        assert "0 recommended addition(s) not added" in out.getvalue()
 
 
 def test_every_practice_sentence_satisfies_its_own_check():
@@ -690,7 +700,7 @@ def test_fix_all_adds_practices_in_their_own_sections_and_recheck_is_clean():
     assert "#Grounding" in fixed and fixed.index("# Always preserve") < fixed.index("#Grounding")
     links = fixed.split("# Always preserve", 1)[1].split("\n#", 1)[0]
     assert "search" not in links.lower()
-    assert re.search(r"After the fix: 0 issue\(s\) left, (\d+) of \1 authoring practices", report)
+    assert re.search(r"After the fix: 0 finding\(s\) left, 0 recommended addition\(s\) not added, (\d+) of \1 authoring", report)
     assert report.splitlines()[-1].startswith("<!-- essdoctor: version=") and "command=fix" in report.splitlines()[-1]
 
 

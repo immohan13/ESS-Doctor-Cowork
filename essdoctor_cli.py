@@ -408,47 +408,56 @@ def cmd_check(a) -> str:
             md += _evalset(a, tests)
     else:
         md += ["✅ No rule findings.", ""]
-    md += ["### ESS core blocks", ""]
-    if cea:
-        md += ["A custom engine agent routes, grounds and retries through its topics, so the declarative agent core "
-               "blocks (routing decision tree, tool-first grounding, knowledge retry) aren't checked.", ""]
-    elif not missing:
-        md += ["✅ All present: " + ", ".join(f"{b['title']} (line {presence[b['id']][0] - off})" for b in CORE_BLOCKS) + ".", ""]
-    else:
-        md += [f"- {b['title']}: present (line {presence[b['id']][0] - off})" if presence[b["id"]] else f"- ❌ {b['title']}: **missing**"
-               for b in CORE_BLOCKS] + [""]
-    md += [f"### Authoring practices: {card['followed']} of {card['applicable']} followed", ""]
-    if not own and not shared:
-        md.append("✅ All applicable practices are followed.")
-    n = len(findings)
-    for title, rows in (("Gaps in your instructions", own),
-                        ("Also missing from the ESS template (lower priority)", shared)):
-        if rows:
-            md += [f"**{title}**", ""]
-            for d in rows:
-                n += 1
-                where, text = _practice_fix(d["fix"])
-                md.append(f"{n}. **{_cell(d['title'].replace('Not following: ', ''))}**"
-                          + (f": add under *{where}*" if where else ""))
-                change = _rule_diff(doc, base, d["rule_id"])[0] if title.startswith("Gaps") else ""
-                block = change or "\n".join(_diff_block([f"+ {ln}" for ln in text.splitlines() if ln.strip()] or ["+ " + text]))
-                md += [""] + _indent(block, "   ") + [""]
-    if findings or own or shared:
-        md += ["To apply fixes, ask ESS Doctor to fix all of them or name the numbers above (for example \"fix 1, 2 and 5\").", ""]
+    if not cea:
+        md += ["### ESS core blocks", ""]
+        if not missing:
+            md += ["✅ All present: " + ", ".join(f"{b['title']} (line {presence[b['id']][0] - off})" for b in CORE_BLOCKS) + ".", ""]
+        else:
+            md += [f"❌ Missing: {', '.join(missing)}. Findings above restore them.", ""]
+    name = lambda d: _cell(d["title"].replace("Not following: ", ""))  # noqa: E731
+    if own:
+        md += ["### Recommended additions", "",
+               f"Your instructions follow {card['followed']} of {card['applicable']} ESS authoring practices. These "
+               f"{len(own)} lines cover the gaps that most affect routing, search and fallback answers; add them as one change:", ""]
+        try:
+            r = fix(doc, base, [d["rule_id"] for d in own])
+            combined = _diff_md({**r["diff"], "char_delta": 0, "moderation_changed": False}, per_block=40) if r["applied"] else ""
+        except Exception:  # noqa: BLE001 - fall back to the plain sentences
+            combined = ""
+        md += [combined or "\n".join(_diff_block([f"+ {_practice_fix(d['fix'])[1]}" for d in own])), ""]
+        md += ["Covers: " + "; ".join(name(d) for d in own) + ".", ""]
+    elif not shared:
+        md += [f"✅ Authoring practices: all {card['applicable']} applicable ones are followed.", ""]
+    if shared:
+        md += [f"**Optional:** {len(shared)} more practices the ESS template doesn't include either: "
+               + "; ".join(name(d) for d in shared) + ".", ""]
+    choices = []
+    if findings:
+        choices.append(f"**\"fix {', '.join(str(i) for i in range(1, min(len(findings), 3) + 1))}\"** for findings by number")
+    if own:
+        choices.append("**\"fix recommended\"** for the findings plus the recommended additions")
+    if shared:
+        choices.append("**\"fix all\"** to include the optional practices too")
+    if choices:
+        md += ["To apply, ask ESS Doctor: " + "; ".join(choices) + ".", ""]
     if a.json:
         _write(a.json, json.dumps({"persona": persona, "cea": cea, "findings": findings, "practices": card,
-                                   "numbers": {i: x["rule_id"] for i, x in enumerate(findings + own + shared, 1)},
+                                   "numbers": {i: x["rule_id"] for i, x in enumerate(findings, 1)},
+                                   "recommended": [d["rule_id"] for d in own], "optional": [d["rule_id"] for d in shared],
                                    "chars": {"raw": raw, "studio": studio, "limit": DA_INSTRUCTION_LIMIT}}, indent=2, default=list))
     return "\n".join(md)
 
 
 def _fix_ids(a, doc: AgentDoc, base, cea: bool) -> list[str] | None:
-    """Rule IDs to fix from --rules: rule IDs or the numbers the check report shows. None means all findings."""
+    """Rule IDs to fix from --rules: finding numbers, 'recommended', 'all' or rule IDs. None means all findings."""
     wanted = [r.strip() for r in (a.rules or "").replace(" ", ",").split(",") if r.strip()]
     findings, own, shared, _ = _check_items(doc, base, cea)
-    numbered = [x["rule_id"] for x in findings + own + shared]
-    if [w.lower() for w in wanted] == ["all"]:
-        return list(dict.fromkeys(numbered)) or ["NONE"]
+    numbered = [x["rule_id"] for x in findings]
+    keyword = [w.lower() for w in wanted]
+    if keyword == ["all"]:
+        return list(dict.fromkeys(numbered + [x["rule_id"] for x in own + shared])) or ["NONE"]
+    if keyword == ["recommended"]:
+        return list(dict.fromkeys(numbered + [x["rule_id"] for x in own])) or ["NONE"]
     if not wanted:
         if not cea:
             return None
@@ -458,7 +467,9 @@ def _fix_ids(a, doc: AgentDoc, base, cea: bool) -> list[str] | None:
     for w in wanted:
         if w.isdigit():
             if not 1 <= int(w) <= len(numbered):
-                raise InputError(f"There's no finding {w}; the check shows 1 to {len(numbered)}.")
+                raise InputError(f"There's no finding {w}; the check shows " + (
+                    f"findings 1 to {len(numbered)}." if numbered else "no numbered findings.")
+                    + " Use 'recommended' or 'all' for the authoring practices.")
             out.append(numbered[int(w) - 1])
         else:
             out.append(w)
@@ -506,11 +517,13 @@ def cmd_fix(a) -> str:
         return r, fixed_len, shortened
 
     r, fixed_len, shortened = attempt(ids)
-    if ids and [w.strip().lower() for w in (a.rules or "").split(",")] == ["all"]:
+    mode = [w.strip().lower() for w in (a.rules or "").split(",")]
+    if ids and mode in (["all"], ["recommended"]):
         # Added lines can make more practices applicable (a "never" rule brings in "balance prohibitions"): add those too.
         for _ in range(2):
             fixed_doc = from_instructions(r["new_instructions"], doc.name + " (fixed)", "fix")
-            more = [x["rule_id"] for x in _check_items(fixed_doc, base, cea)[1] + _check_items(fixed_doc, base, cea)[2]
+            items = _check_items(fixed_doc, base, cea)
+            more = [x["rule_id"] for x in items[1] + (items[2] if mode == ["all"] else [])
                     if x["rule_id"] not in ids]
             if not more:
                 break
@@ -531,21 +544,26 @@ def cmd_fix(a) -> str:
     new_doc = from_instructions(r["new_instructions"], doc.name + " (fixed)", "fix")
     new_doc.topics, new_doc.globals_defined = doc.topics, doc.globals_defined
     left, left_own, left_shared, card = _check_items(new_doc, base, cea)
-    left_n = len([f for f in left if f["origin"] != "template"]) + len(left_own) + len(left_shared)
+    left_findings = [f for f in left if f["origin"] != "template"]
     size = "❌" if after > DA_INSTRUCTION_LIMIT else "⚠️" if after > LENGTH_TARGET else "✅"
     md = ["## ESS Doctor fix", "",
           f"Applied {len(r['applied'])} fix(es); {len(r['manual'])} need a manual change. "
           f"Length {studio_len(doc.instruction_text):,} → {size} {after:,} of {c['limit']:,} (Copilot Studio count).",
-          f"After the fix: {left_n} issue(s) left, {card['followed']} of {card['applicable']} authoring practices followed.",
+          f"After the fix: {len(left_findings)} finding(s) left, {len(left_own)} recommended addition(s) not added, "
+          f"{card['followed']} of {card['applicable']} authoring practices followed.",
           f"The fixed instructions are in `{a.out}`.", ""]
     if shortened and after < fixed_len:
         md += [f"> ✂️ **Shortened automatically:** the fixes took the instructions to {fixed_len:,} characters, over the "
                f"{DA_INSTRUCTION_LIMIT:,} limit, so the existing text was tightened to {after:,}. Every line the fix added "
                "is kept word for word and every ESS ability is kept; review the changed lines under \"What changed\".", ""]
     if dropped:
-        titles = {x["rule_id"]: _title(x) for x in _check_items(doc, base, cea)[1] + _check_items(doc, base, cea)[2]}
+        from ess_maker.doctor.practices import BY_ID
+
+        def _ptitle(rid):
+            p = BY_ID.get(rid[3:]) if rid.startswith("BP-") else None
+            return p.title if p else rid
         md += [f"> ⚠️ **{len(dropped)} practice(s) not added: they don't fit under the {DA_INSTRUCTION_LIMIT:,}-character "
-               "limit.** " + "; ".join(titles.get(d, d) for d in dropped) + ". To add them, first shorten or move the "
+               "limit.** " + "; ".join(_ptitle(d) for d in dropped) + ". To add them, first shorten or move the "
                "longest lines into topic descriptions (ask ESS Doctor to shorten), then fix again.", ""]
     elif after > DA_INSTRUCTION_LIMIT:
         md += [f"> ❌ **{after - DA_INSTRUCTION_LIMIT:,} characters over the limit.** Copilot Studio cuts off the end. "
@@ -555,9 +573,11 @@ def cmd_fix(a) -> str:
     if r["manual"]:
         md += ["### Needs your decision", ""] + [f"- **{_title(x)}**{_at(x, off)}: {_cell(x['change'])}" for x in r["manual"]] + [""]
     md += ["### What changed", "", _diff_md(r["diff"]), ""]
-    remaining = [x for x in left if x["origin"] != "template"] + left_own + left_shared
+    remaining = left_findings + left_own
     if remaining:
         md += ["### Still open", ""] + [f"- {_SEV.get(x['severity'], '')} {_title(x)}" for x in remaining[:10]] + [""]
+    if left_shared and not dropped:
+        md += [f"{len(left_shared)} optional practice(s) not added; ask ESS Doctor to \"fix all\" to include them.", ""]
     if r["tests"]:
         md += ["### Re-test with", ""] + [f"- {t}" for t in r["tests"][:10]] + [""]
     md += _evalset(a, r["tests"], a.out)
@@ -1446,7 +1466,9 @@ def cmd_plan(a) -> str:
             skill, cmd, why = "instruction-draft", f'draft "{path}" --type <change type> --intent "<the change>"', \
                 "Draft the change into the right section, with a diff and a test set"
         elif key == "instructions" and re.search(r"\bfix\b", ask):
-            skill, cmd, why = "instruction-check", f'fix "{path}" --rules all', "Apply the fixes, fitted under the limit"
+            mode = ("all" if re.search(r"\b(all|every|everything)\b", ask) else
+                    ",".join(re.findall(r"\b\d+\b", ask)) or "recommended")
+            skill, cmd, why = "instruction-check", f'fix "{path}" --rules {mode}', "Apply the fixes, fitted under the limit"
         elif key == "instructions" and re.search(r"\b(shorten|condense|too long|limit)\b", ask):
             skill, cmd, why = "instruction-check", f'condense "{path}"', "Shorten to the 10% buffer target"
         if cmd and agent_type == "cea" and key in ("instructions", "snapshot") and cmd.startswith(("check", "fix")):
@@ -1516,7 +1538,8 @@ def main(argv: list[str] | None = None) -> int:
 
     p = sub.add_parser("fix", help="Apply the safe fixes and write the fixed instructions")
     p.add_argument("instructions")
-    p.add_argument("--rules", help="Finding numbers from the check report (for example 1,2,5), 'all', or rule IDs "
+    p.add_argument("--rules", help="Finding numbers from the check report (for example 1,2), 'recommended' (findings plus "
+                                   "the recommended additions), 'all' (also the optional practices), or rule IDs "
                                    "(default: all findings, no practices)")
     p.add_argument("--no-condense", action="store_true", help="Don't shorten automatically when the fixes go over the limit")
     p.add_argument("--persona", **persona)

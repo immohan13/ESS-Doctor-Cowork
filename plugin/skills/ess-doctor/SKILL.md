@@ -31,7 +31,7 @@ For each step, follow that skill's own `SKILL.md` (its Run, Respond and Rules se
 | A conversation ID and Application Insights | `conversation-logs` | `logs-query`, then `xray` |
 | "It says sorry too often", many conversations | `sorry-triage` | `sorry-triage` |
 | "Check / review / validate my instructions" | `instruction-check` | `check` |
-| "Fix all", "fix 1, 2 and 5", "apply the fixes" | `instruction-check` | `fix --rules all` or `--rules 1,2,5` |
+| "Fix all", "fix 1 and 2", "add the recommended practices", "apply the fixes" | `instruction-check` | `fix --rules 1,2`, `--rules recommended` or `--rules all` |
 | "It's too long", "shorten" | `instruction-check` | `condense` |
 | "Add a rule / don't talk about X / use this format / add a synonym" | `instruction-draft` | `draft` |
 | Evaluation results CSV, or two of them (before and after) | `eval-triage` | `eval-triage` / `eval-compare` |
@@ -64,7 +64,7 @@ Give each part a level-4 heading with its emoji (shown below) and separate every
 4. `#### 🛠️ Changes to make`, only if a step changed the instructions: the change's `diff` blocks as returned; then the changes made in Copilot Studio rather than in the instructions (topics, knowledge sources, settings), as a short list.
 5. `#### 📄 Final instructions`, only if a step changed the instructions: print the final file (`cat`) and show its full content, unchanged, in one fenced `text` code block, so the maker copies it with the code block's **Copy** button. Never tell the maker to open the `.txt` file instead: a file preview renders it as Markdown and drops numbering and blank lines. Under it, one line: paste it in Copilot Studio > **Overview > Instructions > Edit** (select all, paste), save, **Publish**, test in a new chat.
 6. `#### ✅ Test and next step`: share `outputs/evalset.csv` with the four import steps on one line each, then one question offering the next step.
-7. **Produced by** (always last, after a final divider, also for a single skill; no heading): one short line in italics, for example _"Produced by ESS Doctor 2.9.2: transcript-xray (`xray`) → sorry-triage → instruction-draft (`draft`)."_ Take the version, skills and commands from the `<!-- essdoctor: … -->` line at the end of each engine output, in the order you ran them. Don't show those comment lines themselves anywhere else in the reply.
+7. **Produced by** (always last, after a final divider, also for a single skill; no heading): one short line in italics with the version and the skills in the order you ran them, for example _"Produced by ESS Doctor 2.11.2 · transcript-xray → sorry-triage → instruction-draft"_. Take them from the `<!-- essdoctor: … -->` line at the end of each engine output. Don't show engine command names, backticks or brackets in it, and don't show the comment lines themselves anywhere in the reply.
 
 Refer to findings by number and title, never by internal rule IDs. No other headings or dividers.
 

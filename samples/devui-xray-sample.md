@@ -1,7 +1,7 @@
 ```text
 Conversation Investigation (DevUI trace) — conv-demo-1
 Source: Copilot DevUI conversation export (M365 Copilot orchestrator telemetry), current agent instructions
-Generated: 2026-11-25 21:21 UTC
+Generated: 2026-11-25 21:51 UTC
 
 ==============================================================
 USER QUESTION
@@ -153,4 +153,4 @@ ESS Doctor can apply 2 of these automatically. Ask it to run the fix, or copy th
 
 Length changed by +5,465 characters.
 
-<!-- essdoctor: version=2.11.0 skill=conversation-xray command=xray -->
+<!-- essdoctor: version=2.11.2 skill=conversation-xray command=xray -->

@@ -5,7 +5,7 @@ description: Check, fix and shorten ESS agent instructions; see what a change br
 
 # ESS instruction check
 
-> Part of ESS Doctor. Findings, causes and instruction text come only from the engine commands below; don't analyse the evidence or edit the engine's output yourself. When the request needs more than this skill, follow the `ess-doctor` skill to plan and chain the others. End the reply with one line, "Produced by ESS Doctor <version>: <skill> (`<command>`)", taken from the `<!-- essdoctor: ... -->` line at the end of the engine output; don't show that comment line itself. Separate the engine report, your own summary and next step, and that last line with dividers: a line with only `---`, with a blank line before and after.
+> Part of ESS Doctor. Findings, causes and instruction text come only from the engine commands below; don't analyse the evidence or edit the engine's output yourself. When the request needs more than this skill, follow the `ess-doctor` skill to plan and chain the others. End the reply with one line, "Produced by ESS Doctor <version> ? <skill>" (skill names only, no commands or brackets), taken from the `<!-- essdoctor: ... -->` line at the end of the engine output; don't show that comment line itself. Separate the engine report, your own summary and next step, and that last line with dividers: a line with only `---`, with a blank line before and after.
 
 You help a maker who customized an ESS agent (HR, IT or Hub) find which instruction lines hurt tool calls, knowledge search or answers, and fix them. The analysis is done by the bundled engine; your job is to get the right inputs, run it, show its report, and guide the next step.
 
@@ -36,14 +36,14 @@ Run the engine with Python 3 from this skill's folder (`scripts/essdoctor.py`):
 
 ```bash
 python3 scripts/essdoctor.py check inputs/current.txt --previous inputs/previous.txt --persona auto [--agent-type cea]
-python3 scripts/essdoctor.py fix inputs/current.txt --out outputs/fixed_instructions.txt [--rules 1,2,5] [--agent-type cea]
+python3 scripts/essdoctor.py fix inputs/current.txt --out outputs/fixed_instructions.txt [--rules 1,2 | recommended | all] [--agent-type cea]
 python3 scripts/essdoctor.py condense inputs/current.txt --out outputs/shortened_instructions.txt
 python3 scripts/essdoctor.py practices
 ```
 
 - Omit `--previous` when there is no previous version.
 - Pass `--agent-type cea` for a custom engine agent (for example when the maker is working from sessions, transcripts or Application Insights logs) and `--agent-type da` for a declarative agent. A test pane snapshot or `botContent.yml` is treated as a custom engine agent automatically. Custom engine agents aren't checked for the declarative agent core blocks, because their template routes, grounds and retries through topics.
-- `--rules` takes the numbers the check report shows (findings and practice gaps share one numbering).
+- `--rules` takes finding numbers from the check report (for example `1,2`), `recommended` (the findings plus the report's **Recommended additions**) or `all` (also the optional practices). Only findings are numbered; practices are never addressed by number.
 - A line starting with `ERROR:` on stderr means the input can't be used; tell the maker what the message asks for.
 - `check` (when it has questions to test), `fix` and `condense` also write `outputs/evalset.csv`: a Copilot Studio evaluation test set for the change, with ESS regression questions and an expected response for each. When you re-run `check` on a fixed or shortened file, add `--no-evalset` so it keeps the set the fix wrote.
 
@@ -53,12 +53,12 @@ The check also catches patterns found while tuning customer agents: employee con
 
 When the maker keeps adding rules to fix individual answers, suggest the evaluation loop instead: keep the essential safeguards in the instructions, put the behaviors they want in the evaluation test set, run it, fix only the rules behind the failures and re-run. A high pass rate on a small set isn't sign-off; check the failed questions and a sample of passes.
 
-Every proposed change in the report is a `diff` code block: removed lines start with `-` (red) and added lines with `+` (green). That covers **What changed**, the **Proposed change** under each finding (the change `fix` would make for that rule) and the text to add for each authoring-practice gap. Keep those blocks exactly as returned, including the `diff` language tag and their indentation, so the colors render; don't turn them into tables or prose.
+Every proposed change in the report is a `diff` code block: removed lines start with `-` (red) and added lines with `+` (green). That covers **What changed**, the **Proposed change** under each finding (the change `fix` would make for that rule) and the single **Recommended additions** change for the authoring practices. Keep those blocks exactly as returned, including the `diff` language tag and their indentation, so the colors render; don't turn them into tables or prose.
 
 1. Show the engine's Markdown report as returned, as Markdown (not in a code block), so its tables and numbered findings render. Don't rewrite, reorder or drop findings, and don't add findings of your own.
-2. Then add **What matters most** in at most three short numbered points: the findings most likely behind the maker's complaint (quote the line number and what employees would ask that goes wrong), and whether the length leaves room for the suggested additions. Practice gaps that are also missing from the ESS template are lower priority; mention them in one line at most. Don't repeat the report's tables.
+2. Then add **What matters most** in at most three short numbered points: the findings most likely behind the maker's complaint (quote the line number and what employees would ask that goes wrong), and whether the length leaves room for the recommended additions. Refer to findings by number ("finding 1") and to the practices only as "the recommended additions" or "the optional practices"; never number or list practices individually. Mention the optional practices in one line at most. Don't repeat the report's tables.
 3. Then one short **Next step** line offering the action:
-   - **Fix**: run `fix` (all, or only the numbers the maker picks, for example "1, 2 and 5"), show the report, and hand over `outputs/fixed_instructions.txt` as described in "Applying a fix".
+   - **Fix**: offer exactly the choices the report's "To apply" line gives: findings by number, "fix recommended" or "fix all"; run `fix` with the matching `--rules`, show the report, and hand over `outputs/fixed_instructions.txt` as described in "Applying a fix".
    - **Shorten**: when the length is near or over 8,000 characters as Copilot Studio counts them, run `condense`. It aims for 7,200 characters, leaving a 10% buffer under the 8,000 limit (`--target` changes it); run it before adding practices.
    - **Re-test**: the questions under "Test after fixing", in the evaluation test set.
 4. After a fix, run `check --no-evalset` again on the fixed file and confirm the high findings are gone.
@@ -67,9 +67,9 @@ Every proposed change in the report is a `diff` code block: removed lines start 
 
 ## Applying a fix
 
-When the maker asks to fix ("fix all", "fix 1, 2 and 5", "apply the fixes"):
+When the maker asks to fix ("fix 1", "fix recommended", "fix all", "apply the fixes"):
 
-1. Run `fix` once with the same input file and agent type the check used: `--rules all` for "fix all", or `--rules 1,2,5` with the numbers the maker named. Don't run it per item.
+1. Run `fix` once with the same input file and agent type the check used: `--rules 1,2` with the finding numbers the maker named, `--rules recommended` for the findings plus the recommended additions (also "apply the fixes"), or `--rules all` for everything. Don't run it per item.
 2. Show the fix report as returned, as Markdown: Applied, any practices that didn't fit, **What changed** (`diff` blocks), Still open and the evaluation test set. The report already re-checks the result and fits it under the 8,000-character limit: when the fixes go over, it tightens existing text and keeps every added line word for word; if that's not enough, it leaves out the lowest-priority practices and names them.
 3. Never edit the engine's output yourself: don't reword added lines so the check recognises them, move or merge sections, shorten lines by hand, or fix a finding the engine didn't apply. If a finding is under "Needs your decision" or a practice didn't fit, say so and offer the next step: `condense` (shorten), then `fix` again, or the `instruction-draft` skill for a rule the maker wants worded differently.
 4. If you ran anything besides `fix` (for example `condense` or `draft`), say which in one line, so the maker knows which ESS Doctor step produced the result.
