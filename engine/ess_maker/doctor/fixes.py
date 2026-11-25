@@ -26,6 +26,8 @@ class _Text:
     def __init__(self, doc: AgentDoc):
         self.lines: dict[int, str | None] = {ln.no: ln.text for ln in doc.instructions}
         self.inserts: dict[int, list[str]] = {}
+        # Sections the instructions don't have yet, added at the end: heading -> lines.
+        self.new_sections: dict[str, list[str]] = {}
 
     def get(self, no: int) -> str:
         return self.lines.get(no) or ""
@@ -47,8 +49,14 @@ class _Text:
             if self.lines[no] is not None:
                 out.append(self.lines[no])
             out.extend(self.inserts.get(no, []))
+        for heading, lines in self.new_sections.items():
+            out += ["", f"#{heading}"] + lines
         text = "\n".join(out)
         return re.sub(r"\n{3,}", "\n\n", text).strip() + "\n"
+
+
+_NEW_SECTION = {"routing": "Routing", "grounding": "Grounding", "toolcall": "Tool calls", "handoff": "When to hand off",
+                "format": "Format"}
 
 
 def _section_end(doc: AgentDoc, title_pattern: str) -> int | None:
@@ -69,8 +77,13 @@ def _apply_one(f: Finding, doc: AgentDoc, t: _Text, baseline: AgentDoc | None) -
         # Add the practice sentence at the end of the section that owns it (or after Core identity).
         pr = f.practice
         blocks = segment(doc)
-        target = next((b for b in blocks if re.search(pr["section"], b.title, re.I)), None) \
-            or next((b for b in blocks if re.search(r"core identity", b.title, re.I)), None)
+        target = next((b for b in blocks if re.search(pr["section"], b.title, re.I)), None)
+        heading = _NEW_SECTION.get(pr.get("key", ""))
+        if not target and heading:
+            # Keep the rule with its kind instead of appending it to an unrelated section.
+            t.new_sections.setdefault(heading, []).append(pr["sentence"])
+            return f"Added the practice to a new '{heading}' section."
+        target = target or next((b for b in blocks if re.search(r"core identity", b.title, re.I)), None)
         anchor = target.end if target else max(t.lines)
         t.insert_after(anchor, [pr["sentence"]])
         return "Added the practice" + (f" to '{target.title}'." if target else ".")
@@ -257,8 +270,11 @@ def fix(doc: AgentDoc, baseline: AgentDoc | None, rule_ids: list[str] | None = N
     before = validate(doc, baseline)
     wanted_bp = [r for r in (rule_ids or []) if r.startswith("BP-")]
     gaps_before = practices.check(doc)[0]
+    have = {g.rule_id for g in gaps_before}
+    gaps_before += [g for g in practices.check(doc, force=True)[0] if g.rule_id in wanted_bp and g.rule_id not in have]
     # Best-practice additions are opt-in per practice ("Fix it"); "Fix all" only repairs rule findings.
-    targets = [f for f in before if f.origin == "maker" and (not rule_ids or f.rule_id in rule_ids)] \
+    # All maker findings by default; a finding the maker names is fixed even when the ESS template has it too.
+    targets = [f for f in before if (f.rule_id in rule_ids if rule_ids else f.origin == "maker")] \
         + [g for g in gaps_before if g.rule_id in wanted_bp]
     shrink = [f for f in targets if f.rule_id in LENGTH_RULES]
     targets = [f for f in targets if f.rule_id not in LENGTH_RULES]
@@ -301,6 +317,7 @@ def fix(doc: AgentDoc, baseline: AgentDoc | None, rule_ids: list[str] | None = N
     after = validate(new_doc, baseline)
     gaps_after = practices.check(new_doc)[0]
     old_doc = from_instructions(doc.instruction_text, doc.name, "current")
+    old_doc.content_moderation = doc.content_moderation
     return {
         "new_instructions": new_text,
         "applied": applied,

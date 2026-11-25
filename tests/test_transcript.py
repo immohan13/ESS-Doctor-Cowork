@@ -662,3 +662,33 @@ def test_check_skips_core_blocks_for_cea_and_fix_takes_finding_numbers():
             assert essdoctor_cli.main(["fix", str(src), "--rules", "1", "--agent-type", "cea", "--out", str(Path(d) / "f.txt"),
                                        "--no-evalset"]) == 0
         assert "Applied 1 fix(es)" in out.getvalue()
+
+
+def test_every_practice_sentence_satisfies_its_own_check():
+    from ess_maker.doctor.practices import CHECKS
+
+    assert [pid for pid, (_, pat, sentence, *_r) in CHECKS.items() if not re.search(pat, sentence, re.I)] == []
+
+
+def test_fix_all_adds_practices_in_their_own_sections_and_recheck_is_clean():
+    import contextlib
+    import tempfile
+    from pathlib import Path
+    import essdoctor_cli
+
+    text = ("# Core identity\nYou are an HR assistant for Contoso employees.\n\n"
+            "# Always preserve hyperlinks from the source documents\n- Keep every link.\n")
+    with tempfile.TemporaryDirectory() as d:
+        src, out_file = Path(d) / "i.txt", Path(d) / "f.txt"
+        src.write_text(text, encoding="utf-8")
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            assert essdoctor_cli.main(["fix", str(src), "--rules", "all", "--agent-type", "cea", "--out", str(out_file),
+                                       "--no-evalset"]) == 0
+        fixed = out_file.read_text(encoding="utf-8")
+        report = out.getvalue()
+    assert "#Grounding" in fixed and fixed.index("# Always preserve") < fixed.index("#Grounding")
+    links = fixed.split("# Always preserve", 1)[1].split("\n#", 1)[0]
+    assert "search" not in links.lower()
+    assert re.search(r"After the fix: 0 issue\(s\) left, (\d+) of \1 authoring practices", report)
+    assert "ESS Doctor" in report.splitlines()[-1] and "`fix`" in report.splitlines()[-1]

@@ -53,3 +53,5 @@ ESS Doctor can apply 1 of these automatically. Ask it to run the fix, or copy th
 ```
 
 Length changed by +209 characters.
+
+<sub>ESS Doctor 2.8.7 · sorry-triage skill · `sorry-triage`</sub>

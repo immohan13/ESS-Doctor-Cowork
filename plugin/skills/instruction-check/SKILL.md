@@ -61,11 +61,18 @@ Every proposed change in the report is a `diff` code block: removed lines start 
 
 ## Applying a fix
 
-Hand the new instructions to the maker so their formatting survives the copy:
+When the maker asks to fix ("fix all", "fix 1, 2 and 5", "apply the fixes"):
+
+1. Run `fix` once with the same input file and agent type the check used: `--rules all` for "fix all", or `--rules 1,2,5` with the numbers the maker named. Don't run it per item.
+2. Show the fix report as returned, as Markdown: Applied, any practices that didn't fit, **What changed** (`diff` blocks), Still open and the evaluation test set. The report already re-checks the result and fits it under the 8,000-character limit: when the fixes go over, it tightens existing text and keeps every added line word for word; if that's not enough, it leaves out the lowest-priority practices and names them.
+3. Never edit the engine's output yourself: don't reword added lines so the check recognises them, move or merge sections, shorten lines by hand, or fix a finding the engine didn't apply. If a finding is under "Needs your decision" or a practice didn't fit, say so and offer the next step: `condense` (shorten), then `fix` again, or the `instruction-draft` skill for a rule the maker wants worded differently.
+4. If you ran anything besides `fix` (for example `condense` or `draft`), say which in one line, so the maker knows which ESS Doctor step produced the result. Every engine report ends with a line naming the ESS Doctor version and command; keep it.
+
+Then hand the new instructions to the maker so their formatting survives the copy:
 
 1. Print the file (`cat outputs/fixed_instructions.txt`) and show its full content, unchanged, inside one fenced code block marked `text`.
 2. Tell the maker to copy it with the code block's **Copy** button. Don't send them to the file preview: it shows the file as formatted Markdown, so numbered lines lose their numbers and blank lines disappear when copied.
-3. Keep line breaks, blank lines, numbering and `#` headings exactly as the engine wrote them. If you have to change a line by hand, edit only that line.
+3. Keep line breaks, blank lines, numbering and `#` headings exactly as the engine wrote them.
 
 The maker applies the new instructions in Copilot Studio: open the agent, **Overview > Instructions > Edit**, select all the existing text, paste, save, **Publish**, then test in a new chat. For agents under ALM (Git), the change goes into the agent's instructions file in the repo and through the normal deploy.
 

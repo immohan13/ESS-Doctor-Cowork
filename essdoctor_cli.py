@@ -444,13 +444,15 @@ def cmd_check(a) -> str:
 def _fix_ids(a, doc: AgentDoc, base, cea: bool) -> list[str] | None:
     """Rule IDs to fix from --rules: rule IDs or the numbers the check report shows. None means all findings."""
     wanted = [r.strip() for r in (a.rules or "").replace(" ", ",").split(",") if r.strip()]
+    findings, own, shared, _ = _check_items(doc, base, cea)
+    numbered = [x["rule_id"] for x in findings + own + shared]
+    if [w.lower() for w in wanted] == ["all"]:
+        return list(dict.fromkeys(numbered)) or ["NONE"]
     if not wanted:
         if not cea:
             return None
         ids = [f.rule_id for f in validate(doc, base) if f.origin == "maker" and not _cea_skip(f)]
         return ids or ["NONE"]
-    findings, own, shared, _ = _check_items(doc, base, cea)
-    numbered = [x["rule_id"] for x in findings + own + shared]
     out = []
     for w in wanted:
         if w.isdigit():
@@ -462,24 +464,97 @@ def _fix_ids(a, doc: AgentDoc, base, cea: bool) -> list[str] | None:
     return list(dict.fromkeys(out))
 
 
+def _keep_condense(original: AgentDoc, text: str, base) -> tuple[str, dict | None]:
+    """Shorten fixed instructions to the 10% buffer target, keeping every line the fix added word for word."""
+    before = {ln.strip() for ln in original.instruction_text.splitlines()}
+    added = [ln for ln in dict.fromkeys(text.splitlines()) if ln.strip() and ln.strip() not in before]
+    masked, marks = text, []
+    for i, ln in enumerate(added):
+        mark = f"- ESSDOCTORKEEP{i}"
+        if ln in masked:
+            masked = masked.replace(ln, mark, 1)
+            marks.append((mark, ln))
+    target = LENGTH_TARGET - sum(studio_len(ln) - studio_len(m) for m, ln in marks)
+    c = condense(from_instructions(masked, original.name + " (fixed)"), base, target)
+    out = c["new_text"]
+    if any(m not in out for m, _ in marks):
+        return text, None
+    for m, ln in marks:
+        out = out.replace(m, ln, 1)
+    return out, c
+
+
 def cmd_fix(a) -> str:
     doc = load_agent(a.instructions)
     base = baseline(_persona(a.persona, doc))
     cea = _is_cea(a.instructions, getattr(a, "agent_type", "auto"))
     off = _offset(doc)
-    r = fix(doc, base, _fix_ids(a, doc, base, cea))
+    ids = _fix_ids(a, doc, base, cea)
+
+    def attempt(rule_ids):
+        r = fix(doc, base, rule_ids)
+        fixed_len, shortened = studio_len(r["new_instructions"]), None
+        if fixed_len > DA_INSTRUCTION_LIMIT and not getattr(a, "no_condense", False):
+            text, shortened = _keep_condense(doc, r["new_instructions"], base)
+            if shortened:
+                new_doc = from_instructions(text, doc.name + " (fixed)", "fix")
+                new_doc.content_moderation = doc.content_moderation
+                old_doc = from_instructions(doc.instruction_text, doc.name, "current")
+                old_doc.content_moderation = doc.content_moderation
+                r.update(new_instructions=text, diff=diff_docs(old_doc, new_doc))
+        return r, fixed_len, shortened
+
+    r, fixed_len, shortened = attempt(ids)
+    if ids and [w.strip().lower() for w in (a.rules or "").split(",")] == ["all"]:
+        # Added lines can make more practices applicable (a "never" rule brings in "balance prohibitions"): add those too.
+        for _ in range(2):
+            fixed_doc = from_instructions(r["new_instructions"], doc.name + " (fixed)", "fix")
+            more = [x["rule_id"] for x in _check_items(fixed_doc, base, cea)[1] + _check_items(fixed_doc, base, cea)[2]
+                    if x["rule_id"] not in ids]
+            if not more:
+                break
+            ids += more
+            r, fixed_len, shortened = attempt(ids)
+    # Over the limit even after shortening: drop the lowest-priority practices (last numbers first) until it fits.
+    dropped: list[str] = []
+    while ids and studio_len(r["new_instructions"]) > DA_INSTRUCTION_LIMIT and not getattr(a, "no_condense", False):
+        practice = [i for i in ids if i.startswith("BP-")]
+        if not practice:
+            break
+        dropped.insert(0, practice[-1])
+        ids = [i for i in ids if i != practice[-1]]
+        r, fixed_len, shortened = attempt(ids)
     _write(a.out, r["new_instructions"])
     c = r["chars"]
-    remaining = [x for x in r["remaining"] if not (cea and _cea_skip(x))]
+    after = studio_len(r["new_instructions"])
+    new_doc = from_instructions(r["new_instructions"], doc.name + " (fixed)", "fix")
+    new_doc.topics, new_doc.globals_defined = doc.topics, doc.globals_defined
+    left, left_own, left_shared, card = _check_items(new_doc, base, cea)
+    left_n = len([f for f in left if f["origin"] != "template"]) + len(left_own) + len(left_shared)
+    size = "❌" if after > DA_INSTRUCTION_LIMIT else "⚠️" if after > LENGTH_TARGET else "✅"
     md = ["## ESS Doctor fix", "",
           f"Applied {len(r['applied'])} fix(es); {len(r['manual'])} need a manual change. "
-          f"Length {c['before']:,} → {c['after']:,} of {c['limit']:,}.",
+          f"Length {studio_len(doc.instruction_text):,} → {size} {after:,} of {c['limit']:,} (Copilot Studio count).",
+          f"After the fix: {left_n} issue(s) left, {card['followed']} of {card['applicable']} authoring practices followed.",
           f"The fixed instructions are in `{a.out}`.", ""]
+    if shortened and after < fixed_len:
+        md += [f"> ✂️ **Shortened automatically:** the fixes took the instructions to {fixed_len:,} characters, over the "
+               f"{DA_INSTRUCTION_LIMIT:,} limit, so the existing text was tightened to {after:,}. Every line the fix added "
+               "is kept word for word and every ESS ability is kept; review the changed lines under \"What changed\".", ""]
+    if dropped:
+        titles = {x["rule_id"]: _title(x) for x in _check_items(doc, base, cea)[1] + _check_items(doc, base, cea)[2]}
+        md += [f"> ⚠️ **{len(dropped)} practice(s) not added: they don't fit under the {DA_INSTRUCTION_LIMIT:,}-character "
+               "limit.** " + "; ".join(titles.get(d, d) for d in dropped) + ". To add them, first shorten or move the "
+               "longest lines into topic descriptions (ask ESS Doctor to shorten), then fix again.", ""]
+    elif after > DA_INSTRUCTION_LIMIT:
+        md += [f"> ❌ **{after - DA_INSTRUCTION_LIMIT:,} characters over the limit.** Copilot Studio cuts off the end. "
+               "Apply fewer fixes, or shorten the instructions first.", ""]
     if r["applied"]:
         md += ["### Applied", ""] + [f"- **{_title(x)}**{_at(x, off)}: {_cell(x['change'])}" for x in r["applied"]] + [""]
     if r["manual"]:
         md += ["### Needs your decision", ""] + [f"- **{_title(x)}**{_at(x, off)}: {_cell(x['change'])}" for x in r["manual"]] + [""]
     md += ["### What changed", "", _diff_md(r["diff"]), ""]
+    remaining = [x for x in left if x["origin"] != "template"] + left_own + left_shared
     if remaining:
         md += ["### Still open", ""] + [f"- {_SEV.get(x['severity'], '')} {_title(x)}" for x in remaining[:10]] + [""]
     if r["tests"]:
@@ -498,11 +573,17 @@ def cmd_condense(a) -> str:
           + ("Target reached." if r["reached"] else f"Still {r['still_needed']:,} characters over; see the candidates below."),
           f"The shortened instructions are in `{a.out}`.", ""]
     if r["steps"]:
-        md += ["### What was shortened", ""] + [f"- {_cell(s if isinstance(s, str) else s.get('what') or s)}" for s in r["steps"][:20]] + [""]
+        done = [s for s in r["steps"] if isinstance(s, str) or s.get("applied", True)]
+        md += ["### What was shortened", ""] + ([
+            f"- {_cell(s if isinstance(s, str) else s.get('what') or s.get('step'))}"
+            + (f" ({s['saved']:,} characters)" if isinstance(s, dict) and s.get("saved") else "") for s in done[:20]]
+            or ["- Nothing could be shortened automatically without changing what a rule says."]) + [""]
     if r["abilities_kept"]:
         md += ["### Abilities kept", "", ", ".join(f"{k}: {v}" for k, v in r["abilities_kept"].items()), ""]
     if not r["reached"] and r["candidates"]:
-        md += ["### Candidates to cut or move into topics or knowledge", ""] + [f"- {_cell(x if isinstance(x, str) else json.dumps(x))[:300]}" for x in r["candidates"]] + [""]
+        md += ["### Lines to shorten or move into topic descriptions", ""] + [
+            f"- Line {x['line']} ({x['chars']:,} characters): \"{_clip(x.get('excerpt', ''), 120)}\" · {_cell(x.get('why'))}"
+            if isinstance(x, dict) else f"- {_cell(x)[:300]}" for x in r["candidates"]] + [""]
     if r["new_text"] != doc.instruction_text:
         md += ["### What changed", "", _diff_md(diff_docs(from_instructions(doc.instruction_text, doc.name, "current"),
                                                           from_instructions(r["new_text"], doc.name + " (shortened)"))), ""]
@@ -1252,6 +1333,28 @@ def cmd_component_update(a) -> str:
     raise InputError("No 'instructions: |' block found in the component.")
 
 
+_SKILL_OF = {"check": "instruction-check", "fix": "instruction-check", "condense": "instruction-check",
+             "draft": "instruction-draft", "xray": "conversation-xray", "sorry-triage": "sorry-triage",
+             "eval-triage": "eval-triage", "eval-compare": "eval-triage", "audit": "agent-audit"}
+
+
+def _version() -> str:
+    """Plugin version stamped into the built engine (VERSION in the .pyz), else the source manifest."""
+    import pkgutil
+
+    try:
+        data = pkgutil.get_data("__main__", "VERSION")
+        if data:
+            return data.decode("utf-8").strip()
+    except (OSError, ValueError, AttributeError):
+        pass
+    try:
+        m = Path(__file__).resolve().parent / "plugin" / "manifest.json"
+        return json.loads(m.read_text(encoding="utf-8-sig"))["version"]
+    except (OSError, ValueError, KeyError):
+        return "dev"
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="essdoctor", description="ESS Doctor: check, fix and troubleshoot Employee Self-Service agents.")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -1271,7 +1374,9 @@ def main(argv: list[str] | None = None) -> int:
 
     p = sub.add_parser("fix", help="Apply the safe fixes and write the fixed instructions")
     p.add_argument("instructions")
-    p.add_argument("--rules", help="Finding numbers from the check report (for example 1,2,5) or rule IDs (default: all)")
+    p.add_argument("--rules", help="Finding numbers from the check report (for example 1,2,5), 'all', or rule IDs "
+                                   "(default: all findings, no practices)")
+    p.add_argument("--no-condense", action="store_true", help="Don't shorten automatically when the fixes go over the limit")
     p.add_argument("--persona", **persona)
     p.add_argument("--agent-type", **agent_type)
     p.add_argument("--out", default="outputs/fixed_instructions.txt")
@@ -1354,7 +1459,10 @@ def main(argv: list[str] | None = None) -> int:
     except (AttributeError, ValueError):
         pass
     try:
-        print(a.fn(a))
+        out = a.fn(a)
+        print(out)
+        if a.cmd in _SKILL_OF and out.lstrip().startswith(("#", "```")):
+            print(f"\n<sub>ESS Doctor {_version()} · {_SKILL_OF[a.cmd]} skill · `{a.cmd}`</sub>")
         return 0
     except InputError as e:
         print(f"ERROR: {e}", file=sys.stderr)

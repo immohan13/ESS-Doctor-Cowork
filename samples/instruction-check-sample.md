@@ -142,3 +142,6 @@ Checked against the ESS HR template.
    ```
 
 To apply fixes, ask ESS Doctor to fix all of them or name the numbers above (for example "fix 1, 2 and 5").
+
+
+<sub>ESS Doctor 2.8.7 · instruction-check skill · `check`</sub>

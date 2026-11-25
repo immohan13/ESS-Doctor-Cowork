@@ -66,6 +66,8 @@ def build_pyz(out: Path) -> None:
     for p in ("hr", "it", "hub"):
         shutil.copy(HERE / "templates" / f"template_{p}.txt", tpl / f"template_{p}.txt")
     shutil.copy(HERE / "essdoctor_cli.py", stage / "__main__.py")
+    manifest = json.loads((HERE / "plugin" / "manifest.json").read_text(encoding="utf-8-sig"))
+    (stage / "VERSION").write_text(manifest["version"], encoding="utf-8")
     out.parent.mkdir(parents=True, exist_ok=True)
     zipapp.create_archive(stage, out, interpreter="/usr/bin/env python3")
     shutil.rmtree(stage, ignore_errors=True)

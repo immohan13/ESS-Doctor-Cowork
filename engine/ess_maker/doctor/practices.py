@@ -170,7 +170,7 @@ def for_change(change_type: str) -> list[Practice]:
 # applies-when keys: all | answer (non-router agents) | router | topics | writes | prohibitions | augment
 _STAGE = {"Identity": "platform", "1 Planner": "routing", "2 Search": "search", "3 Synthesis": "synthesis",
           "4 Render": "render", "Authoring": "platform"}
-_SECTION = {"core": r"core identity", "routing": r"routing", "grounding": r"grounding|tool-first|source",
+_SECTION = {"core": r"core identity", "routing": r"routing", "grounding": r"grounding|tool-first|knowledge search",
             "toolcall": r"tool call|tool-call|tool use", "handoff": r"hand ?off|boundar|emotional", "format": r"format"}
 CHECKS: dict[str, tuple] = {
     "P03": ("answer", r"\b(kb|knowledge|approved (knowledge )?sources?)\b[^.\n]{0,30}\bmeans\b",
@@ -179,16 +179,16 @@ CHECKS: dict[str, tuple] = {
     "P04": ("all", r"\bintent\b",
             "- Route by the question's primary intent, not by keywords it happens to contain.", "routing",
             "Wrong answer path", "low"),
-    "P05": ("router", r"\bdo not route\b|\bdon'?t route\b|\bDON'T\b",
+    "P05": ("router", r"\bdo not route\b|\bdon'?t route\b|\bDON'T\b|must not go there",
             "- For each destination, also say which neighbouring requests must not go there.", "routing",
             "Wrong answer path", "low"),
-    "P07": ("router", r"\bone (connected )?agent\b|do not invoke multiple|route to one|\bone class\b",
+    "P07": ("router", r"\bone (connected )?agent\b|do not invoke multiple|route to one|\bone class\b|stop evaluating others",
             "- If one destination clearly owns the request, use it and stop evaluating others.", "routing",
             "Slow answer", "low"),
-    "P08": ("router", r"do not reroute|not a fallback|never switch classes|cross-class fallback",
+    "P08": ("router", r"do not reroute|not a fallback|never switch classes|cross-class fallback|just because the first one couldn'?t",
             "- Don't send a request to another destination just because the first one couldn't answer.", "routing",
             "Wrong answer path", "low"),
-    "P09": ("router", r"\bmixed\b|multiple distinct|spans both",
+    "P09": ("router", r"\bmixed\b|multiple distinct|spans both|requests with two tasks",
             "- For requests with two tasks, handle the blocking one first, then the other with its context.",
             "routing", "Incomplete answer", "low"),
     "P10": ("all", r"clarif[^.\n]{0,140}\b(only|material|changes?|bare umbrella|necessary)\b|smallest (material )?detail",
@@ -209,10 +209,10 @@ CHECKS: dict[str, tuple] = {
     "P16": ("answer", r"search_query|query rule|own words|search with the (user|employee)",
             "- Search with the employee's own words plus only context that changes the answer; never add names, "
             "IDs or statuses to the query.", "grounding", "Ungrounded / poor answer", "low"),
-    "P17": ("augment", r"only when (it|they) can change|only when (the )?(policy|answer) (varies|changes)|not to narrow",
+    "P17": ("augment", r"only when (it|they) can change|only when (the )?(policy|answer) (varies|changes|differs)|not to narrow",
             "- Add country or role to a search only when the policy differs by it.", "grounding",
             "Ungrounded / poor answer", "low"),
-    "P19": ("answer", r"at most (one|1)\b|one synonym retry|retry once",
+    "P19": ("answer", r"at most (one|1)\b|at most once more|one synonym retry|retry once",
             "- If the first search lacks a close match, search at most once more with broader terms.", "grounding",
             "Fallback / escalation", "low"),
     "P20": ("answer", r"stop (exploratory|searching)|do not call extra|do(n'?t| not) repeat a tool call|reuse existing results",
@@ -226,13 +226,13 @@ CHECKS: dict[str, tuple] = {
     "P22": ("answer", r"empty result|failed retrieval|missing evidence",
             "- Treat an empty search, a failed search and no search differently; missing evidence is a gap, not "
             "a 'no'.", "grounding", "Wrong answer for the user", "low"),
-    "P23": ("answer", r"supported parts|each (requested )?part|every requested part",
+    "P23": ("answer", r"supported parts|each (requested )?part|every requested part|parts the sources support",
             "- Answer the parts the sources support and state the limit for the rest.", "grounding",
             "Incomplete answer", "low"),
     "P24": ("answer_prohibitions", r"restrict invention|unnecessary refusal|fully answer|still answer",
             "These limits restrict invention, not help: answer everything approved sources cover.", "handoff",
             "Overly cautious", "low"),
-    "P25": ("answer", r"abstain with|state the (gap|limitation)|could not be (found|established)|say what is missing",
+    "P25": ("answer", r"abstain with|state the (gap|limitation)|could not be (found|established)|say what is missing|still don'?t cover it",
             "- If sources still don't cover it, say so and use the approved support route.", "grounding",
             "Fallback / escalation", "low"),
     "P27": ("answer", r"untrusted|as data, never as instructions|never follow (directives|instructions)",
@@ -287,11 +287,14 @@ def _context(doc) -> dict[str, bool]:
     }
 
 
-def check(doc) -> tuple[list, dict]:
-    """Practice gaps as findings, plus a scorecard of which applicable practices the instructions follow."""
+def check(doc, force: bool = False) -> tuple[list, dict]:
+    """Practice gaps as findings, plus a scorecard of which applicable practices the instructions follow.
+    force: treat every practice as applicable (to fix one the maker picked that only applies after other fixes)."""
     from ess_maker.doctor.rules import USER_SEES, Finding
 
     ctx = _context(doc)
+    if force:
+        ctx = {k: True for k in ctx}
     text = doc.instruction_text
     gaps, followed = [], []
     for pid, (when, pattern, sentence, section, sees, severity) in CHECKS.items():
@@ -312,7 +315,7 @@ def check(doc) -> tuple[list, dict]:
             f"Add under '{section.replace('toolcall', 'tool call')}': {sentence}",
             [], "", "practice", origin="practice",
         ))
-        gaps[-1].practice = {"id": pid, "sentence": sentence, "section": _SECTION[section]}
+        gaps[-1].practice = {"id": pid, "sentence": sentence, "section": _SECTION[section], "key": section}
     applicable = len(followed) + len(gaps)
     return gaps, {"applicable": applicable, "followed": len(followed), "followed_list": followed,
                   "gaps": [g.rule_id for g in gaps], "router": ctx["router"]}
