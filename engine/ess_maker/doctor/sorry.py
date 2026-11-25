@@ -57,6 +57,15 @@ CAUSES = {c.id: c for c in [
           "refuse'), then retest the question.", ("rai",)),
     Cause("throttled", "Copilot throttled the request", "Platform (no maker fix)",
           "Ask again later. If it keeps happening, report it with thumbs down.", ()),
+    Cause("platform-error", "Copilot Studio returned a system error", "Platform (Microsoft support), then maker (On Error topic)",
+          "Re-run the question; if the same error code comes back, open a Microsoft support case with the conversation ID "
+          "and time. Make sure the On Error topic has a branch for this error code (and a fallback) so employees get a "
+          "friendly message.", ()),
+    Cause("context-missing", "Employee details weren't loaded, so the answer was generic",
+          "Agent maker (user context topic)",
+          "Set up the user context topic (for example \"[Admin] - User Context - Setup\") so country, job level and similar "
+          "values are filled in from the HR system or Microsoft Entra ID, and tell the instructions what to do when one is "
+          "blank.", ()),
     Cause("consent-required", "Asked the user to sign in or allow a connection", "Agent maker (connections)",
           "Use a maker-provided connection (or connection reference) for tools users shouldn't have to consent to, or tell "
           "users to accept the connection prompt.", ()),
@@ -178,8 +187,12 @@ def _transcript_item(diag: dict, name: str) -> Item:
         return it
     if diag["consent"]:
         it.cause = "consent-required"
+    elif diag.get("context_missing"):
+        it.cause = "context-missing"
     elif diag["failed"]:
         it.cause = "action-failed"
+    elif diag.get("errors") or re.search(r"\bError code:\s*\w+", resp[:400]):
+        it.cause = "platform-error"
     elif st.get("planner") == "failed":
         it.cause = "no-tool-match"
     elif st.get("search") == "failed":
@@ -212,9 +225,10 @@ def _session_item(row: dict, name: str) -> Item:
     return it
 
 
-def triage(sources: list[tuple[str, str, object]], instructions: str = "") -> dict:
+def triage(sources: list[tuple[str, str, object]], instructions: str = "", cea: bool = False) -> dict:
     """sources: (kind, name, payload) with kind "devui" (parsed export), "transcript" (diagnosis dict), "session"
-    (sessions CSV row) or "devmode" (diagnosis dict, question, response)."""
+    (sessions CSV row) or "devmode" (diagnosis dict, question, response). cea: the instructions belong to a custom
+    engine agent, whose template routes through topics, so the declarative agent core-block rules don't apply."""
     items: list[Item] = []
     seen: dict = {}
     for kind, name, payload in sources:
@@ -231,6 +245,8 @@ def triage(sources: list[tuple[str, str, object]], instructions: str = "") -> di
     counts = Counter(i.cause for i in sorry)
     current = from_instructions(instructions, "current") if instructions.strip() else None
     current_list = validate(current) if current else []
+    if cea:
+        current_list = [f for f in current_list if not (f.rule_id.startswith("L2-") and f.rule_id.endswith("-MISSING"))]
     current_findings = {f.rule_id: f for f in current_list}
     # Evidence without the instructions that ran (developer mode cards): link the current instructions' rules.
     for i in sorry:
@@ -297,9 +313,24 @@ def build(result: dict) -> str:
     versions = sorted({(i.agent, i.version) for i in items if i.version})
     if versions:
         L += ["", "Agent versions in this evidence: " + ", ".join(f"{a or 'agent'} {v}" for a, v in versions) + "."]
-    L += ["", "### Next steps", "",
-          "1. Fix the biggest maker-owned cause first: run the instruction check on the current instructions and apply the fixes for the rules above.",
-          "2. Send the content-owned questions (search found nothing relevant) to the knowledge owner with the queries listed.",
-          "3. Send connector failures to the connection admin with the developer mode card.",
-          "4. Re-run the same questions after publishing and triage the new exports to confirm the sorry share dropped."]
+    present = [c for c, _ in Counter(i.cause for i in items if i.sorry).most_common()]
+    step_for = {
+        "rule-decline": "Run the instruction check and narrow the restriction rules behind these declines.",
+        "no-search-decline": "Run the instruction check: the grounding and abstain rules make the agent decline before searching.",
+        "found-but-declined": "Run the instruction check: the agent found content but its rules stopped the answer.",
+        "no-tool-match": "Improve the descriptions of the topics and tools that should handle these questions.",
+        "context-missing": "Set up the user context topic so country, job level and similar details are filled in, then re-test.",
+        "search-empty": "Send the questions where search found nothing relevant to the knowledge owner, with the questions listed above.",
+        "action-failed": "Send the failing topics or connectors to the connection admin, with the conversation details above.",
+        "consent-required": "Switch those tools to a maker-provided connection, or tell employees to accept the connection prompt.",
+        "safety-block": "Review content moderation and any instruction that adds sensitive wording to answers.",
+        "platform-error": "Re-run the questions that hit a system error; if it repeats, open a Microsoft support case with the "
+                          "conversation IDs, and add a branch for the error code to the On Error topic.",
+        "throttled": "Throttling is on the platform side; re-test later.",
+        "cea-inside": "Get the Copilot Studio transcripts or test pane snapshots of these conversations and triage them again.",
+        "unknown": "Collect a transcript, test pane snapshot or developer mode card for these conversations and triage them again.",
+    }
+    steps = list(dict.fromkeys(step_for[c] for c in present if c in step_for))[:4]
+    steps.append("Re-run the same questions after publishing and triage the new evidence to confirm the sorry share dropped.")
+    L += ["", "### Next steps", ""] + [f"{n}. {s}" for n, s in enumerate(steps, 1)]
     return "\n".join(L)

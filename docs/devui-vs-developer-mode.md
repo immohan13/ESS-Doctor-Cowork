@@ -77,7 +77,7 @@ Environment-level Application Insights export needs a managed environment, so th
 
 ### Evidence compared
 
-| What it shows | DevUI export | Test pane snapshot | Copilot Studio transcript (Dataverse `conversationtranscript`) | Application Insights logs | Copilot Studio Analytics > Sessions download |
+| What it shows | DevUI export | Test pane snapshot | Copilot Studio transcript (Dataverse `conversationtranscript`) | Application Insights logs | Copilot Studio Monitor > Sessions download |
 | --- | --- | --- | --- | --- | --- |
 | Who can get it | Microsoft support and engineering only | The maker, in the Copilot Studio test pane (⋯ > Save snapshot) | Makers with the Bot Transcript Viewer role (Business apps connector, Power Apps export) | Anyone with the Reader role on the Application Insights resource, once telemetry is set up | Makers with the Bot Transcript Viewer role |
 | Real employee conversations | Yes | No, only the maker's own test chats | Yes | Yes (and test chats) | Yes |

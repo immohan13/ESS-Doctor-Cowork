@@ -9,10 +9,16 @@ You help a team cut the share of "sorry" or no-answer replies from their ESS age
 
 ## Collect evidence
 
-Ask for one file per failing conversation, uploaded together or as one `.zip`. What to collect depends on the agent type:
+Upload the files together or as one `.zip` (zips of zips are fine). First find out which kind of ESS agent it is; what to collect depends on it.
 
-- **Custom engine agent (CEA)**, a Copilot Studio agent behind Microsoft 365 Copilot: the Copilot Studio **Analytics > Sessions** download (CSV; one file covers every session of the last 28 days) ranks sorry answers by last topic and outcome. For the cause behind each one, add the full transcripts (Dataverse `conversationtranscript` content, through the Business apps connector or a Power Apps export); one transcript per conversation, or a CSV export with a content column.
-- **Declarative agent (DA)**: the files below.
+**Custom engine agent (CEA)**, a Copilot Studio agent behind Microsoft 365 Copilot. Best first:
+
+1. **Monitor > Sessions download**: in Copilot Studio open the agent > **Monitor** > **Sessions** > **Download Sessions** (CSV; up to 28 days, refreshed every 15 minutes). One file covers every session and ranks the sorry answers by last topic and outcome. Bot replies are cut at 512 characters, so it shows _that_ the agent said sorry more than _why_.
+2. **Transcripts** of those conversations, for the cause behind each one: with the **Business apps (preview)** connector, read them yourself as in the `transcript-xray` skill (keep the rows whose question matches the sorry sessions, up to 30, and save them as one JSON file), or use a Power Apps export of the ConversationTranscript table. Needs the Bot Transcript Viewer role.
+3. **Test pane snapshots** (`.zip`, ⋯ > Save snapshot in the test pane) of questions the maker can reproduce. They add the agent's setup, so the report can spot problems such as an empty user context topic.
+4. **Application Insights export** (agent-level telemetry, see `conversation-logs`) if the agent sends telemetry: one CSV can hold many conversations; each is checked separately.
+
+**Declarative agent (DA)**:
 
 1. **Developer mode cards** (customers can get these themselves): in the Copilot Studio **Test** pane or Microsoft 365 Copilot with the agent selected, send `-developer on`, ask the question that got a sorry in a new chat, open **Raw info** on the card and copy the JSON (or the whole card) into a `.txt` file, then send `-developer off`. Add two lines at the top of the file so the answer stage can be judged:
 
@@ -23,14 +29,15 @@ Ask for one file per failing conversation, uploaded together or as one `.zip`. W
 
 2. **DevUI conversation exports** (Microsoft support only): `conversationHistory-<id>.json` from DevUI; every turn in the export is checked. Only suggest DevUI when the maker says Microsoft support or the ESS team is helping.
 
-Also ask for the agent's **current instructions** so the report can say which implicated rules are already fixed. If the **Business apps (preview)** plugin is connected, read them from Copilot Studio instead of asking the maker to copy them (follow "Read the agent from Copilot Studio" in the `instruction-check` skill) and pass the saved component file with `--instructions`. 10–30 conversations give a reliable picture; a few are enough to start.
+Also ask for the agent's **current instructions** so the report can name the rules behind the declines (a snapshot already contains them). If the **Business apps (preview)** plugin is connected, read them from Copilot Studio instead of asking the maker to copy them (follow "Read the agent from Copilot Studio" in the `instruction-check` skill) and pass the saved component file with `--instructions`. 10–30 conversations give a reliable picture; a few are enough to start.
 
 ## Run
 
 ```bash
-python3 scripts/essdoctor.py sorry-triage inputs/*.json inputs/*.txt --instructions inputs/current.txt
+python3 scripts/essdoctor.py sorry-triage inputs/*.json inputs/*.txt --instructions inputs/current.txt   # developer mode cards, DevUI
 python3 scripts/essdoctor.py sorry-triage inputs/evidence.zip --instructions inputs/current.txt
-python3 scripts/essdoctor.py sorry-triage inputs/sessions.csv inputs/transcripts/*.json   # custom engine agent
+python3 scripts/essdoctor.py sorry-triage inputs/sessions.csv inputs/transcripts.json inputs/*.zip     # custom engine agent: sessions, transcripts, snapshots
+python3 scripts/essdoctor.py sorry-triage inputs/appinsights.csv                                       # Application Insights export
 ```
 
 ## Respond

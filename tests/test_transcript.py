@@ -436,3 +436,53 @@ def test_draft_over_limit_is_shortened_automatically_keeping_the_new_rule():
     assert "Shortened automatically:" in buf.getvalue() and "10% buffer" in buf.getvalue()
     assert disclaimer in text
     assert essdoctor_cli.studio_len(text) <= 8000
+
+
+def test_sorry_triage_reads_snapshots_and_app_insights_exports():
+    import contextlib
+    import tempfile
+    import zipfile
+    from pathlib import Path
+    import essdoctor_cli
+
+    bot = ("kind: BotDefinition\ncomponents:\n"
+           "  - kind: GptComponent\n    instructions: |-\n      #Core identity\n      'Country': {Global.ESS_UserContext_Country_Code}\n"
+           "  - kind: DialogComponent\n    displayName: \"[Admin] - User Context - Setup\"\n"
+           "    schemaName: contoso.topic.Setusercontext\n    dialog:\n      beginDialog:\n        kind: OnRedirect\n        id: main\n")
+    hedge = [{"type": "message", "from": {"role": "user"}, "text": "what is my leave policy"},
+             {"type": "event", "valueType": "DynamicPlanStepFinished",
+              "value": {"taskDialogId": "P:UniversalSearchTool", "state": "completed",
+                        "observation": {"search_result": {"search_results": [{"Name": "Leave.aspx"}]}}}},
+             {"type": "message", "from": {"role": "bot"}, "text": "I couldn't verify your country from your employee record."}]
+    error = [{"type": "message", "from": {"role": "user"}, "text": "something unsafe"},
+             {"type": "message", "from": {"role": "bot"}, "text": "Sorry, something went wrong. Error code: SystemError."},
+             {"type": "trace", "valueType": "ErrorCode", "value": {"ErrorCode": "SystemError"}}]
+    rows = io.StringIO()
+    w = csv.writer(rows)
+    w.writerow(["timestamp [UTC]", "itemType", "name", "operation_Id", "session_Id", "customDimensions"])
+    for i, (cid, name, text) in enumerate([("c-1", "BotMessageReceived", "Show my tickets"),
+                                           ("c-1", "BotMessageSend", "I'm sorry, I couldn't find that."),
+                                           ("c-2", "BotMessageReceived", "What is PTO?"),
+                                           ("c-2", "BotMessageSend", "PTO means paid time off.")]):
+        w.writerow([f"2026-11-25T03:40:{i:02d}Z", "customEvent", name, "op", "",
+                    json.dumps({"conversationId": cid, "type": "message", "text": text})])
+    with tempfile.TemporaryDirectory() as d:
+        bundle = Path(d) / "evidence.zip"
+        with zipfile.ZipFile(bundle, "w") as z:
+            for n, acts in (("leave.zip", hedge), ("error.zip", error)):
+                inner = io.BytesIO()
+                with zipfile.ZipFile(inner, "w") as s:
+                    s.writestr("dialog.json", json.dumps({"activities": acts}))
+                    s.writestr("botContent.yml", bot)
+                z.writestr(n, inner.getvalue())
+        logs = Path(d) / "logs.csv"
+        logs.write_text(rows.getvalue(), encoding="utf-8")
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            assert essdoctor_cli.main(["sorry-triage", str(bundle), str(logs)]) == 0
+    report = out.getvalue()
+
+    assert "4 turn(s) analyzed; 3 ended in a sorry" in report
+    assert "Employee details weren't loaded" in report
+    assert "Copilot Studio returned a system error" in report
+    assert "Skipped" not in report and "MISSING" not in report

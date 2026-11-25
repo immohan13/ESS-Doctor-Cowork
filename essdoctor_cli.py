@@ -628,24 +628,54 @@ def cmd_xray(a) -> str:
 
 
 def _evidence_files(paths: list[str]) -> list[tuple[str, bytes]]:
+    """Evidence files; a .zip is unpacked (nested zips too) except a test pane snapshot, which stays whole."""
+    def expand(name: str, data: bytes, depth: int = 0) -> list[tuple[str, bytes]]:
+        if not zipfile.is_zipfile(io.BytesIO(data)) or depth > 2 or _snapshot(data):
+            return [(name, data)]
+        found = []
+        with zipfile.ZipFile(io.BytesIO(data)) as z:
+            for i in z.infolist():
+                if i.is_dir():
+                    continue
+                inner = f"{name}/{i.filename}"
+                if i.filename.lower().endswith(".zip"):
+                    found += expand(inner, z.read(i), depth + 1)
+                elif re.search(r"(?i)\.(json|txt|md|csv)$", i.filename):
+                    found.append((inner, z.read(i)))
+        return found
+
     out = []
     for path in paths:
-        data = _read(path)
-        if zipfile.is_zipfile(io.BytesIO(data)):
-            with zipfile.ZipFile(io.BytesIO(data)) as z:
-                out += [(f"{Path(path).name}/{i.filename}", z.read(i)) for i in z.infolist()
-                        if not i.is_dir() and re.search(r"(?i)\.(json|txt|md|csv)$", i.filename)]
-        else:
-            out.append((Path(path).name, data))
+        out += expand(Path(path).name, _read(path))
     return out
 
 
 def cmd_sorry(a) -> str:
-    from ess_maker.doctor import devmode, sorry, transcript
+    from ess_maker.doctor import appinsights, devmode, sorry, transcript
 
-    sources, skipped = [], []
+    sources, skipped, snapshot_instructions = [], [], ""
     for name, data in _evidence_files(a.evidence):
+        snap = _snapshot(data)
+        if snap:
+            dialog, bot_yaml = snap
+            bf = transcript.bot_findings(bot_yaml)
+            for doc in transcript.load(dialog):
+                diag = transcript.diagnose(doc)
+                if bf["empty_context_topics"] and diag["stages"].get("synthesis") == "failed":
+                    diag["context_missing"] = True
+                    diag["likely_cause"] = (f'The "{bf["empty_context_topics"][0]}" topic has no steps, so the employee\'s '
+                                            "details were blank and the agent answered generically.")
+                sources.append(("transcript", name, diag))
+            if bot_yaml and not snapshot_instructions:
+                snapshot_instructions = bot_yaml
+            continue
         text = _text(data).lstrip("\ufeff")
+        if appinsights.is_export(text):
+            for cid in appinsights.conversation_ids(text):
+                acts, _ = appinsights.to_activities(text, cid)
+                if acts:
+                    sources.append(("transcript", f"{name}#{cid[:8]}", transcript.diagnose({"activities": acts})))
+            continue
         obj = None
         if text.lstrip().startswith("{"):
             try:
@@ -673,13 +703,17 @@ def cmd_sorry(a) -> str:
         else:
             skipped.append(name)
     if not sources:
-        raise InputError("No conversation evidence found. Upload developer mode cards (text or Raw info JSON) or, if "
-                         "Microsoft support is helping you, DevUI conversation exports; one file per conversation or "
-                         "several in a .zip.")
-    instructions = load_agent(a.instructions).instruction_text if a.instructions else ""
-    md = sorry.build(sorry.triage(sources, instructions))
+        raise InputError("No conversation evidence found. Custom engine agent: upload the Copilot Studio Monitor > Sessions "
+                         "download, transcripts, test pane snapshots (.zip) or an Application Insights export. Declarative "
+                         "agent: developer mode cards (text or Raw info JSON) or, with Microsoft support, DevUI exports. "
+                         "One file per conversation or several in a .zip.")
+    instructions = (load_agent(a.instructions).instruction_text if a.instructions else
+                    _from_text(snapshot_instructions, "Instructions in the snapshot", "snapshot").instruction_text
+                    if snapshot_instructions else "")
+    cea = any(kind in ("transcript", "session") for kind, _, _ in sources)
+    md = sorry.build(sorry.triage(sources, instructions, cea=cea))
     if skipped:
-        md += "\n\nSkipped (not a DevUI export or developer mode card): " + ", ".join(skipped[:20])
+        md += "\n\nSkipped (not recognised as conversation evidence): " + ", ".join(skipped[:20])
     return md
 
 

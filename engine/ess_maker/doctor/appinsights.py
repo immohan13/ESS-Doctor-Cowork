@@ -142,6 +142,18 @@ def _query_of(args) -> str:
     return a.strip() if isinstance(a, str) else ""
 
 
+def conversation_ids(text: str) -> list[str]:
+    """Conversation IDs in an export, in order of first appearance (sub-agent suffixes after '_' are folded in)."""
+    seen: list[str] = []
+    for r in _rows(text):
+        cd = _cd(r)
+        cid = str(cd.get("gen_ai.conversation.id") or cd.get("conversationId") or cd.get("ConversationId")
+                  or r.get("session_Id") or "").split("_")[0]
+        if cid and cid not in seen:
+            seen.append(cid)
+    return seen
+
+
 def to_activities(text: str, conversation_id: str = "") -> tuple[list[dict], dict]:
     rows = _rows(text)
     acts: list[dict] = []

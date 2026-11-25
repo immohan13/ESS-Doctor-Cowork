@@ -3,7 +3,7 @@
 Reads ``conversationtranscript.content`` (``{"activities": [...]}``). Messages come from ``type: message``
 (``from.role`` 1 or "user" = user, 0 or "bot" = agent). Orchestration, knowledge search, topic and error details come from event and
 trace activities, matched on ``valueType`` by keyword because the generative-orchestration value types aren't a
-documented contract. Accepts the raw content, a Dataverse row or row list, or the Copilot Studio Analytics sessions
+documented contract. Accepts the raw content, a Dataverse row or row list, or the Copilot Studio Monitor > Sessions
 CSV (a column holding the transcript JSON).
 """
 from __future__ import annotations
@@ -131,7 +131,7 @@ def looks_like_transcript(text: str) -> bool:
 
 
 def load_sessions(text: str) -> list[dict]:
-    """Rows of a Copilot Studio Analytics sessions download (CSV with a ChatTranscript column)."""
+    """Rows of a Copilot Studio Monitor > Sessions download (CSV with a ChatTranscript column)."""
     t = (text or "").lstrip("\ufeff")
     head = t[:2000].lower()
     if "chattranscript" not in head or "sessionid" not in head:
@@ -433,7 +433,7 @@ def diagnose(doc: dict, question: str = "") -> dict:
             "details": {k: v for k, v in details.items() if v},
             "question": asked, "response": reply,
             "searches": searches, "topics": uniq(topics), "planned": uniq(planned), "ran": uniq(ran), "failed": failed,
-            "consent": consent, "conversation": _conversation_id(acts)}
+            "consent": consent, "errors": uniq(errors), "conversation": _conversation_id(acts)}
 
 
 def _conversation_id(acts: list[dict]) -> str:

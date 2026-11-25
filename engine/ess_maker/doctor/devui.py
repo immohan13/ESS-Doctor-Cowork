@@ -279,7 +279,7 @@ def _relevant(f, question: str) -> bool:
 _HANDOFF = re.compile(r"reach out to (hr|the people team|support)|contact (hr|askhr|the people team|your hr)|"
                       r"(submit|create|open|raise) (a|an) (ticket|case)|talk to (hr|a person|an agent)", re.I)
 
-TRANSCRIPT_HOWTO = ("Get the Copilot Studio transcript of this conversation: in Copilot Studio open the agent, go to Analytics > "
+TRANSCRIPT_HOWTO = ("Get the Copilot Studio transcript of this conversation: in Copilot Studio open the agent, go to Monitor > "
                     "Sessions and download the sessions for the day (CSV), or, with the Business apps connector, read the "
                     "conversationtranscript record. Then run the X-ray on it.")
 

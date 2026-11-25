@@ -13,7 +13,7 @@ Use this skill when the maker has a **conversation ID** from a real employee con
 
 Ask only for what's missing, in one message:
 
-1. The **conversation ID**. The employee or maker gets it by sending `/debug conversationid` in the conversation; Copilot Studio also shows it in Analytics > Sessions and in transcripts.
+1. The **conversation ID**. The employee or maker gets it by sending `/debug conversationid` in the conversation; Copilot Studio also shows it in Monitor > Sessions and in transcripts.
 2. Roughly **when** the conversation happened (default: last 7 days; up to 90).
 3. Whether the agent sends telemetry to Application Insights. If the maker doesn't know, explain the options and stop until one is set up:
    - **Agent-level telemetry (works in any environment):** in Copilot Studio, the agent's **Settings > Advanced > Application Insights**, paste the whole connection string from the Application Insights resource's Overview page (it starts with `InstrumentationKey=` and includes `IngestionEndpoint=`), turn on **Enable logging**, **Log conversation details** and **Node execution events**, and save. Data arrives within minutes. It logs messages, topics and every topic step, plus the ESS logger topics' events, but not knowledge searches or tool calls. The ESS agent is a managed solution: changing its settings adds a customization layer, so future ESS updates won't apply cleanly; tell the maker before they change it.
