@@ -80,7 +80,7 @@ A custom engine agent is a Copilot Studio agent that Microsoft 365 Copilot hands
 | When it's available | After the conversation | Immediately | About 30 minutes after the conversation goes idle | Minutes; up to 24 hours after telemetry is first set up | — |
 | Many conversations at once | One export per conversation | One snapshot per test chat | One record per conversation | Yes, by query | Yes, every session of the last 28 days |
 
-ESS Doctor reads all five. A DevUI export of a custom engine agent turn is reported as a handoff ("in Copilot Studio") instead of an ungrounded answer, and points to the transcript for the plan and searches. The `conversation-logs` skill writes the Application Insights query for a conversation ID. For the fullest picture of one employee's conversation, combine its transcript or Application Insights logs with a test pane snapshot of the agent, which adds the instructions and topic setup.
+ESS Doctor reads all five. A DevUI export of a custom engine agent turn is reported as a handoff ("in Copilot Studio") instead of an ungrounded answer, and points to the transcript for the plan and searches. The `conversation-logs` skill writes the Application Insights query for a conversation ID. For the fullest picture of one employee's conversation, combine its transcript or Application Insights logs with a test pane snapshot of the agent, which adds the instructions and topic setup. Agent-level telemetry works in any environment but doesn't log knowledge searches, so pair it with the transcript when search matters; environment-level telemetry, which logs tool calls, is only available for managed environments.
 
 ## What customers can't get today
 

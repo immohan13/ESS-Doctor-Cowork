@@ -407,8 +407,8 @@ def cmd_xray(a) -> str:
                  + (f"; model {info['model']}" if info["model"] else "") + "."]
         if not info["spans"]:
             extra.append("Only agent-level telemetry was found: it logs messages, topics and topic steps, but not "
-                         "knowledge searches or tool calls, so the search stage can't be judged. Environment-level "
-                         "telemetry or a test pane snapshot shows them.")
+                         "knowledge searches or tool calls, so the search stage can't be judged. The Copilot Studio "
+                         "transcript of this conversation, or a test pane snapshot, shows them.")
         extra += [f"Logged by a topic: {m}" for m in info["logger"][:5]]
         return "```text\n" + transcript.build(json.dumps({"activities": acts}), question=a.question, response=a.response,
                                              current=current, kind="appinsights", extra_happened=extra) + "\n```"
