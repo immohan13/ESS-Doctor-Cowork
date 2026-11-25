@@ -221,6 +221,14 @@ def _diff_md(diff: dict, limit: int = 60, per_block: int = 5) -> str:
 
 # --- Commands ---------------------------------------------------------------------------------------------
 
+_SEV = {"high": "🔴", "medium": "🟠", "low": "🟡", "info": "⚪"}
+
+
+def _practice_fix(fix: str) -> tuple[str, str]:
+    """Split a practice fix like "Add under 'grounding': - text" into (section, text)."""
+    m = re.match(r"\s*Add under '([^']+)':\s*-?\s*(.*)", fix or "", re.S)
+    return (m.group(1).capitalize(), m.group(2).strip()) if m else ("", (fix or "").strip())
+
 
 def cmd_check(a) -> str:
     doc = load_agent(a.instructions)
@@ -232,46 +240,64 @@ def cmd_check(a) -> str:
     presence = core_presence(doc)
     raw, studio = len(doc.instruction_text), studio_len(doc.instruction_text)
     counts = {s: sum(1 for f in findings if f["severity"] == s) for s in ("high", "medium", "low")}
-    maker = sum(1 for f in findings if f["origin"] != "template")
     missing = [b["title"] for b in CORE_BLOCKS if not presence[b["id"]]]
     who = f"the ESS {persona.upper()} template" if base else "the ESS rules (no template baseline)"
-    md = ["## ESS Doctor check", "",
-          f"Checked against {who}: {counts['high']} high, {counts['medium']} medium, {counts['low']} low "
-          f"({maker} from your instructions, {len(findings) - maker} also in the ESS template). "
-          f"Follows {card['followed']} of {card['applicable']} applicable authoring practices. "
-          f"Length: {studio:,} characters as Copilot Studio counts them ({raw:,} raw) of the {DA_INSTRUCTION_LIMIT:,} limit. "
-          + ("All ESS core blocks are present." if not missing else f"Missing ESS core blocks: {', '.join(missing)}."), ""]
+    over = studio > DA_INSTRUCTION_LIMIT
+    near = studio > DA_INSTRUCTION_LIMIT * 0.9
+    md = ["## Instruction check", "",
+          f"Checked against {who}.", "",
+          "| Findings | Length (Copilot Studio count) | Authoring practices | ESS core blocks |",
+          "| --- | --- | --- | --- |",
+          f"| {_SEV['high']} {counts['high']} high · {_SEV['medium']} {counts['medium']} medium · {_SEV['low']} {counts['low']} low "
+          f"| {'❌' if over else '⚠️' if near else '✅'} {studio:,} of {DA_INSTRUCTION_LIMIT:,} ({raw:,} raw) "
+          f"| {card['followed']} of {card['applicable']} followed "
+          f"| {'✅ ' + str(len(CORE_BLOCKS)) + ' of ' + str(len(CORE_BLOCKS)) + ' present' if not missing else '❌ missing: ' + ', '.join(missing)} |",
+          ""]
     if a.previous:
         prev = load_agent(a.previous, "Previous version")
         prev_keys = {(f.rule_id, f.current) for f in validate(prev, base)}
         new = [f for f in findings if (f["rule_id"], f["current"]) not in prev_keys]
         md += ["### What changed since the previous version", "", _diff_md(diff_docs(prev, doc)), ""]
         md += ["### Findings introduced by this change", ""]
-        md += [f"- **{f['severity']}** {f['rule_id']} (line {_lines(f)}): {_cell(f['title'])}. Users see: {_cell(f['user_sees'])}"
-               for f in new] or ["- None. The findings below were already present in the previous version."]
+        md += [f"- {_SEV.get(f['severity'], '')} **{f['severity']}** {f['rule_id']} (line {_lines(f)}): {_cell(f['title'])}. "
+               f"Employees see: {_cell(f['user_sees']).lower()}." for f in new] \
+            or ["- None. The findings below were already present in the previous version."]
         md.append("")
     if findings:
-        md += ["### Findings", "", "| Severity | Rule | Lines | What's wrong | Users see | Fix |", "| --- | --- | --- | --- | --- | --- |"]
-        for f in findings:
-            origin = " (also in template)" if f["origin"] == "template" else ""
-            md.append(f"| {f['severity']}{origin} | {f['rule_id']} | {_lines(f)} | {_cell(f['title'])} | {_cell(f['user_sees'])} | {_cell(f['fix'])} |")
-        md.append("")
+        order = {"high": 0, "medium": 1, "low": 2, "info": 3}
+        ordered = sorted(findings, key=lambda f: (order.get(f["severity"], 9), f["origin"] == "template"))
+        md += ["### Fix first", ""]
+        for i, f in enumerate(ordered, 1):
+            origin = " · also in the ESS template" if f["origin"] == "template" else ""
+            md += [f"{i}. {_SEV.get(f['severity'], '')} **{_cell(f['title'])}**  ",
+                   f"   Line {_lines(f)} · `{f['rule_id']}` · {f['severity']}{origin}",
+                   f"   - **Employees see:** {_cell(f['user_sees'])}",
+                   f"   - **Fix:** {_cell(f['fix'])}", ""]
         tests = sorted({p for f in findings if f["origin"] != "template" for p in f.get("test_prompts") or []})
         if tests:
-            md += ["### Questions to test after fixing", ""] + [f"- {t}" for t in tests[:12]] + [""]
+            md += ["### Test after fixing", ""] + [f"- {t}" for t in tests[:12]] + [""]
             md += _evalset(a, tests)
     else:
-        md += ["No rule findings.", ""]
+        md += ["✅ No rule findings.", ""]
     md += ["### ESS core blocks", ""]
-    md += [f"- {b['title']}: present (line {presence[b['id']][0]})" if presence[b["id"]] else f"- {b['title']}: **missing**"
-           for b in CORE_BLOCKS]
-    md += ["", f"### Authoring practices ({card['followed']} of {card['applicable']} followed)", ""]
-    for g in gaps:
-        d = g.to_dict()
-        tg = " (also a gap in the ESS template)" if d["rule_id"] in base_gaps else ""
-        md.append(f"- {d['rule_id'][3:]} {_cell(d['title'].replace('Not following: ', ''))}{tg}: {_cell(d['fix'])}")
+    if not missing:
+        md += ["✅ All present: " + ", ".join(f"{b['title']} (line {presence[b['id']][0]})" for b in CORE_BLOCKS) + ".", ""]
+    else:
+        md += [f"- {b['title']}: present (line {presence[b['id']][0]})" if presence[b["id"]] else f"- ❌ {b['title']}: **missing**"
+               for b in CORE_BLOCKS] + [""]
+    md += [f"### Authoring practices: {card['followed']} of {card['applicable']} followed", ""]
     if not gaps:
-        md.append("- All applicable practices are followed.")
+        md.append("✅ All applicable practices are followed.")
+    own = [g.to_dict() for g in gaps if g.to_dict()["rule_id"] not in base_gaps]
+    shared = [g.to_dict() for g in gaps if g.to_dict()["rule_id"] in base_gaps]
+    for title, rows in (("Gaps in your instructions", own),
+                        ("Also missing from the ESS template (lower priority)", shared)):
+        if rows:
+            md += [f"**{title}**", "", "| Practice | Add under | Text to add |", "| --- | --- | --- |"]
+            for d in rows:
+                where, text = _practice_fix(d["fix"])
+                md.append(f"| {d['rule_id'][3:]} {_cell(d['title'].replace('Not following: ', ''))} | {where} | {_cell(text)} |")
+            md.append("")
     if a.json:
         _write(a.json, json.dumps({"persona": persona, "findings": findings, "practices": card,
                                    "chars": {"raw": raw, "studio": studio, "limit": DA_INSTRUCTION_LIMIT}}, indent=2, default=list))

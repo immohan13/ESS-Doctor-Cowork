@@ -370,3 +370,19 @@ def test_draft_writes_importable_evalset_with_specific_expectations():
     assert "Who is my manager?" in by_q
     assert len(rows) - 1 <= 100 and all(len(q) <= 1000 and len(e) <= 1000 for q, e in rows[1:])
     assert "### Evaluation test set" in buf.getvalue()
+
+
+def test_check_report_orders_findings_and_splits_practice_gaps():
+    import contextlib
+    import essdoctor_cli
+
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        assert essdoctor_cli.main(["check", "samples/inputs/contoso_instructions.txt", "--persona", "hr", "--no-evalset"]) == 0
+    report = out.getvalue()
+
+    assert report.index("### Fix first") < report.index("### ESS core blocks") < report.index("### Authoring practices")
+    first = report.split("### Fix first", 1)[1].split("\n2. ", 1)[0]
+    assert "🔴" in first and "**Employees see:**" in first and "**Fix:**" in first
+    assert "| Practice | Add under | Text to add |" in report
+    assert "Copilot Studio count" in report

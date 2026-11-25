@@ -45,14 +45,15 @@ python3 scripts/essdoctor.py practices
 
 ## Respond
 
-1. Show the engine's Markdown report as returned. Don't rewrite, reorder or drop findings, and don't add findings of your own.
-2. Then give a short plain-language summary: the 1–3 findings most likely behind the maker's complaint, quoting the line numbers, what employees see, and the fix.
-3. Offer the next action:
+1. Show the engine's Markdown report as returned, as Markdown (not in a code block), so its tables and numbered findings render. Don't rewrite, reorder or drop findings, and don't add findings of your own.
+2. Then add **What matters most** in at most three short numbered points: the findings most likely behind the maker's complaint (quote the line number and what employees would ask that goes wrong), and whether the length leaves room for the suggested additions. Practice gaps that are also missing from the ESS template are lower priority; mention them in one line at most. Don't repeat the report's tables.
+3. Then one short **Next step** line offering the action:
    - **Fix**: run `fix` (all, or only the rule IDs the maker picks), show the report, and hand over `outputs/fixed_instructions.txt` as described in "Applying a fix".
-   - **Shorten**: when the length is over 8,000 characters as Copilot Studio counts them, run `condense`.
-   - **Re-test**: list the "Questions to test" from the report.
+   - **Shorten**: when the length is near or over 8,000 characters as Copilot Studio counts them, run `condense` (before adding practices).
+   - **Re-test**: the questions under "Test after fixing", in the evaluation test set.
 4. After a fix, run `check --no-evalset` again on the fixed file and confirm the high findings are gone.
-5. Whenever `outputs/evalset.csv` was written, share it as a downloadable file and tell the maker how to use it: in Copilot Studio open the agent > **Evaluation** > **Create a test set** > upload the CSV, run it on the current version, publish the change, run it again, then upload both results files here to compare them with `eval-compare`.
+5. Whenever `outputs/evalset.csv` was written, share it as a downloadable file and tell the maker how to use it in four short steps: in Copilot Studio open the agent > **Evaluation** > **Create a test set** > upload the CSV; run it on the current version; publish the change and run it again; upload both results files here to compare them with `eval-compare`.
+6. Keep it scannable: no headings beyond the two above, bold only key numbers and line references, and no emoji beyond those in the report.
 
 ## Applying a fix
 
