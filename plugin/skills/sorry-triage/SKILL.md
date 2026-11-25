@@ -9,7 +9,10 @@ You help a team cut the share of "sorry" or no-answer replies from their ESS age
 
 ## Collect evidence
 
-Ask for one file per failing conversation, uploaded together or as one `.zip`:
+Ask for one file per failing conversation, uploaded together or as one `.zip`. What to collect depends on the agent type:
+
+- **Custom engine agent (CEA)**, a Copilot Studio agent behind Microsoft 365 Copilot: the Copilot Studio **Analytics > Sessions** download (CSV; one file covers every session of the last 28 days) ranks sorry answers by last topic and outcome. For the cause behind each one, add the full transcripts (Dataverse `conversationtranscript` content, through the Business apps connector or a Power Apps export); one transcript per conversation, or a CSV export with a content column.
+- **Declarative agent (DA)**: the files below.
 
 1. **Developer mode cards** (customers can get these themselves): in the Copilot Studio **Test** pane or Microsoft 365 Copilot with the agent selected, send `-developer on`, ask the question that got a sorry in a new chat, open **Raw info** on the card and copy the JSON (or the whole card) into a `.txt` file, then send `-developer off`. Add two lines at the top of the file so the answer stage can be judged:
 
@@ -27,6 +30,7 @@ Also ask for the agent's **current instructions** so the report can say which im
 ```bash
 python3 scripts/essdoctor.py sorry-triage inputs/*.json inputs/*.txt --instructions inputs/current.txt
 python3 scripts/essdoctor.py sorry-triage inputs/evidence.zip --instructions inputs/current.txt
+python3 scripts/essdoctor.py sorry-triage inputs/sessions.csv inputs/transcripts/*.json   # custom engine agent
 ```
 
 ## Respond

@@ -11,7 +11,7 @@
 | No topic, action or knowledge matched | 1 | 25% | Agent maker (descriptions and instructions) | Rewrite the description of the topic or action that should handle this question using employees' words, and check the instructions don't steer it away from tools. |
 | Search found content but the agent still declined | 1 | 25% | Agent maker (instructions) | Either the kept documents are the wrong ones (fix the query) or the abstain rule is too strict: let the agent answer from what search returned and cite it. |
 
-**2 of 4** sorry answers are caused by the agent's instructions or descriptions, which the maker can fix without waiting for content or backend changes.
+**2 of 4** sorry answers have causes the maker can fix in the agent (instructions, descriptions, moderation or connections) without waiting for content or backend changes.
 
 ### Instruction rules behind the maker-owned sorries
 

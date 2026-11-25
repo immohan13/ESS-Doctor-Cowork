@@ -1,6 +1,6 @@
 ---
 name: conversation-xray
-description: Diagnose one ESS agent conversation from a DevUI export or developer mode card and recommend fixes.
+description: Diagnose one ESS agent conversation (declarative or custom engine agent) from developer mode, a transcript or DevUI, and recommend fixes.
 ---
 
 # ESS conversation X-ray
@@ -9,7 +9,12 @@ You explain one conversation turn of an ESS agent, using the evidence the maker 
 
 ## Evidence
 
-Customer makers can get the first three themselves. DevUI is a Microsoft-internal tool: only suggest it when the maker says Microsoft support or the ESS team is helping.
+First find out which kind of ESS agent it is. Ask if it isn't clear; a DevUI report that says "custom engine agent" also tells you.
+
+- **Declarative agent (DA)**: runs on Microsoft 365 Copilot's orchestrator (external customers today). Use the evidence below.
+- **Custom engine agent (CEA)**: a Copilot Studio agent that Microsoft 365 Copilot hands the question to (Microsoft's own ESS deployment today). Planning, topics, knowledge search and tools run inside Copilot Studio, so DevUI only shows the handoff. Use the **Copilot Studio conversation transcript** instead: the `content` of the Dataverse `conversationtranscript` record (`{"activities": [...]}`). Get it with the **Business apps (preview)** connector (`SELECT content, conversationstarttime FROM conversationtranscript WHERE _bot_conversationtranscriptid_value = '<botid>' ORDER BY conversationstarttime DESC`, then pick the one containing the question), or from a Power Apps export of the ConversationTranscript table. Transcripts appear about 30 minutes after the conversation goes idle and need the Bot Transcript Viewer role. The Copilot Studio **Analytics > Sessions** download only has the conversation text; use it with `sorry-triage`, not for a single X-ray.
+
+For declarative agents, customer makers can get the first three themselves. DevUI is a Microsoft-internal tool: only suggest it when the maker says Microsoft support or the ESS team is helping.
 
 1. **Developer mode card** (start here): open the agent in the Copilot Studio **Test** pane (or in Microsoft 365 Copilot with the agent selected), send `-developer on`, ask the failing question in a new chat, then open **Raw info** on the card and copy the JSON (or copy the whole card). Send `-developer off` when done. Both the JSON card (`capabilitiesDeveloperInfo`, `pluginDeveloperInfo`, `agentMetaData`) and the text card work. The card doesn't contain the question or the answer, so always pass them with `--question` and `--response` (from the chat or from `Question:` / `Response:` lines at the top of the file). No card means Copilot answered without the agent's knowledge or actions (itself a finding) or the request was throttled. The report diagnoses tool selection, each action's HTTP status and latency (401/403/404/429/5xx, timeouts), knowledge searches with zero results, searches that returned documents unrelated to the question, and "no function selected".
 2. **The agent's instructions** (needed to name the instruction line): copy them from Copilot Studio (**Overview > Instructions**) or read them through the Business apps connector (below), and pass them with `--instructions`.
@@ -28,9 +33,10 @@ python3 scripts/essdoctor.py xray inputs/conversationHistory.json --question "re
 python3 scripts/essdoctor.py xray inputs/conversationHistory.json --turn 2                   # pick a turn by number
 python3 scripts/essdoctor.py xray inputs/audit.csv --agent "Employee Self-Service"
 python3 scripts/essdoctor.py xray inputs/devmode.txt --question "<employee question>" --response "<agent answer>" --instructions inputs/current.txt
+python3 scripts/essdoctor.py xray inputs/transcript.json --question "<employee question>"   # custom engine agent: Copilot Studio transcript
 ```
 
-The DevUI report lists all turns when an export has more than one; analyze the one the maker is asking about. For several conversations at once (for example "the agent says sorry too often"), use the `sorry-triage` skill instead.
+The DevUI report lists all turns when an export has more than one; analyze the one the maker is asking about. When a DevUI report says "custom engine agent", get the Copilot Studio transcript of the same conversation and X-ray that too. For several conversations at once (for example "the agent says sorry too often"), use the `sorry-triage` skill instead.
 
 ## Respond
 
@@ -42,5 +48,5 @@ The DevUI report lists all turns when an export has more than one; analyze the o
 
 - DevUI exports contain employee questions, answers, tenant and user identifiers. Use them only to answer the maker; don't copy them into emails, chats or other documents unless asked, and don't keep them in memory.
 - Don't infer backend behavior (ServiceNow, Workday) beyond what the evidence shows; the report lists what the trace can't see.
-- If the evidence isn't recognised, say which of the three formats to provide.
+- If the evidence isn't recognised, say which formats to provide for the agent type (DA: developer mode card, instructions, Purview export; CEA: Copilot Studio transcript).
 - Never replace the report's verdict with your own reading of the evidence. If the report looks wrong for the file, say so and show the report anyway.

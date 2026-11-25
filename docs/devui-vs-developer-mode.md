@@ -61,6 +61,24 @@ The example sizes come from one ESS HR conversation ("compare my salary with ama
 | Instruction lines likely responsible | Yes, with the instructions | Yes |
 | Recommended next steps | Yes | Yes |
 
+## Custom engine agents (CEA)
+
+A custom engine agent is a Copilot Studio agent that Microsoft 365 Copilot hands the question to. Its planning, topics, knowledge search and tools run inside Copilot Studio, so the evidence is different:
+
+| What it shows | DevUI export | Copilot Studio transcript (Dataverse `conversationtranscript`) | Copilot Studio Analytics > Sessions download |
+| --- | --- | --- | --- |
+| Who can get it | Microsoft support and engineering only | Makers with the Bot Transcript Viewer role (Business apps connector, Power Apps export) | Makers with the Bot Transcript Viewer role |
+| Question and answer | Yes | Yes (answers grounded on SharePoint are stored as REDACTED) | Yes (each reply cut at 512 characters) |
+| Handoff to Copilot Studio (calls, latency, status) | Yes | No | No |
+| Microsoft 365 Copilot safety classifiers | Yes | No | No |
+| Plan, topics and tools that ran | No | Yes | Last topic only |
+| Knowledge searches and results | No | Yes, when recorded | No |
+| Failed steps and errors | Handoff failures only | Yes | Outcome and outcome reason |
+| Connection consent prompts | No | Yes | No |
+| Many conversations at once | One export per conversation | One record per conversation | Yes, every session of the last 28 days |
+
+ESS Doctor reads all three. A DevUI export of a custom engine agent turn is reported as a handoff ("in Copilot Studio") instead of an ungrounded answer, and points to the transcript for the plan and searches.
+
 ## What customers can't get today
 
 These DevUI sections have no customer-accessible source:

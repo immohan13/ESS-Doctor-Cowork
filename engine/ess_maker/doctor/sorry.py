@@ -57,6 +57,13 @@ CAUSES = {c.id: c for c in [
           "refuse'), then retest the question.", ("rai",)),
     Cause("throttled", "Copilot throttled the request", "Platform (no maker fix)",
           "Ask again later. If it keeps happening, report it with thumbs down.", ()),
+    Cause("consent-required", "Asked the user to sign in or allow a connection", "Agent maker (connections)",
+          "Use a maker-provided connection (or connection reference) for tools users shouldn't have to consent to, or tell "
+          "users to accept the connection prompt.", ()),
+    Cause("cea-inside", "Custom engine agent: reason is inside Copilot Studio", "Collect the full Copilot Studio transcript",
+          "Read the full transcripts of these conversations (Dataverse conversationtranscript, through the Business apps "
+          "connector or a Power Apps export) and run the X-ray on them; they show the topic, knowledge search or error "
+          "behind each sorry.", ()),
     Cause("unknown", "Not enough evidence", "Collect more evidence",
           "Collect a developer mode card for the question (Raw info JSON) with the question, the agent's answer and the "
           "instructions; with Microsoft support, a DevUI export also shows the instructions that ran and the search funnel.",
@@ -88,6 +95,16 @@ def _devui_items(parsed: dict, name: str, seen: dict) -> list[Item]:
                   version=(t["agent"] or {}).get("version", ""))
         out.append(it)
         if not sorry:
+            continue
+        if t.get("cea"):
+            cea = t["cea"]
+            if t["rai"]["triggered"]:
+                it.cause, it.detail = "safety-block", ", ".join(t["rai"]["triggered"])
+            elif cea["calls"] and not cea["ok"]:
+                it.cause, it.detail = "action-failed", f"handoff to {cea.get('schema') or 'Copilot Studio'} failed ({cea['calls']} call(s))"
+            else:
+                it.cause = "cea-inside"
+                it.detail = f"{cea.get('schema') or 'Copilot Studio agent'} answered; planning and search aren't in the DevUI export"
             continue
         served = from_instructions(t["instructions"], "served", "devui") if t["instructions"] else None
         check = instruction_check(t["question"], resp, served)
@@ -153,13 +170,60 @@ def _devmode_item(diag: dict, name: str, question: str, response: str) -> Item:
     return it
 
 
+def _transcript_item(diag: dict, name: str) -> Item:
+    st, resp = diag["stages"], diag["response"] or ""
+    it = Item(name, diag.get("conversation") or "", diag["question"], resp,
+              sorry=not resp or bool(SORRY.search(resp[:800])) or "failed" in st.values() or diag["consent"])
+    if not it.sorry:
+        return it
+    if diag["consent"]:
+        it.cause = "consent-required"
+    elif diag["failed"]:
+        it.cause = "action-failed"
+    elif st.get("planner") == "failed":
+        it.cause = "no-tool-match"
+    elif st.get("search") == "failed":
+        it.cause = "search-empty"
+    elif diag["searches"]:
+        it.cause = "found-but-declined"
+    elif diag["planned"] or diag["topics"]:
+        it.cause = "rule-decline" if SORRY.search(resp[:800]) and not diag["ran"] else "unknown"
+    else:
+        it.cause = "no-search-decline"
+    topics = ", ".join(diag["topics"][:3])
+    it.detail = (diag["likely_cause"][:160] + (f" Topics: {topics}." if topics else ""))[:220]
+    return it
+
+
+def _session_item(row: dict, name: str) -> Item:
+    resp = row["response"] or ""
+    topic = row["topic"] or ""
+    it = Item(name, row["session"], row["question"], resp,
+              sorry=not resp or bool(SORRY.search(resp[:800])) or bool(re.search(r"fallback|on ?error", topic, re.I)))
+    if not it.sorry:
+        return it
+    if re.search(r"on ?error", topic, re.I):
+        it.cause = "action-failed"
+    elif re.search(r"fallback|unknown", topic, re.I):
+        it.cause = "no-tool-match"
+    else:
+        it.cause = "cea-inside"
+    it.detail = f"Last topic: {topic or 'none'}; outcome: {row['outcome'] or '?'}{(' (' + row['reason'] + ')') if row['reason'] else ''}"
+    return it
+
+
 def triage(sources: list[tuple[str, str, object]], instructions: str = "") -> dict:
-    """sources: (kind, name, payload) with kind "devui" (parsed export) or "devmode" (diagnosis dict, question, response)."""
+    """sources: (kind, name, payload) with kind "devui" (parsed export), "transcript" (diagnosis dict), "session"
+    (sessions CSV row) or "devmode" (diagnosis dict, question, response)."""
     items: list[Item] = []
     seen: dict = {}
     for kind, name, payload in sources:
         if kind == "devui":
             items += _devui_items(payload, name, seen)
+        elif kind == "transcript":
+            items.append(_transcript_item(payload, name))
+        elif kind == "session":
+            items.append(_session_item(payload, name))
         else:
             diag, q, r = payload
             items.append(_devmode_item(diag, name, q, r))
@@ -209,8 +273,8 @@ def build(result: dict) -> str:
         cause = CAUSES[cid]
         L.append(f"| {cause.title} | {c} | {c * 100 // n}% | {cause.owner} | {_cell(cause.fix)} |")
     maker = sum(c for cid, c in counts.items() if CAUSES[cid].owner.startswith("Agent maker"))
-    L += ["", f"**{maker} of {n}** sorry answers are caused by the agent's instructions or descriptions, which the maker can fix "
-              "without waiting for content or backend changes."]
+    L += ["", f"**{maker} of {n}** sorry answers have causes the maker can fix in the agent (instructions, descriptions, "
+              "moderation or connections) without waiting for content or backend changes."]
     if result["rules"]:
         L += ["", "### Instruction rules behind the maker-owned sorries", "",
               "| Rule | Sorry turns | What's wrong | Fix |", "| --- | --- | --- | --- |"]

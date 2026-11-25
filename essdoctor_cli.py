@@ -393,8 +393,23 @@ def cmd_xray(a) -> str:
         md += ["", "Compare when each version started with when the instructions changed, then upload a developer mode card "
                    "of a failing question, with the question and the agent's answer, for a step-by-step X-ray."]
         return "\n".join(md)
-    from ess_maker.doctor import devmode, devmode_report
+    from ess_maker.doctor import devmode, devmode_report, transcript
 
+    if transcript.looks_like_transcript(text):
+        return "```text\n" + transcript.build(text, question=a.question, response=a.response, current=current) + "\n```"
+    sessions = transcript.load_sessions(text)
+    if sessions:
+        q = (a.question or "").lower()
+        row = next((r for r in sessions if q and q[:60] in (r["question"] or "").lower()), sessions[0])
+        return "\n".join([
+            "## Copilot Studio session (summary only)", "",
+            f"- **Question:** {row['question']}", f"- **Agent's last reply:** {row['response'][:512] or '(none)'}",
+            f"- **Last topic:** {row['topic'] or 'none'}", f"- **Outcome:** {row['outcome'] or '?'} {row['reason']}".rstrip(),
+            f"- **Session:** {row['session']} ({row['start']})", "",
+            f"This file has {len(sessions)} session(s). The sessions download only has the text of the conversation, so it "
+            "can't show the plan, knowledge searches or errors. Use `sorry-triage` on this file to rank causes across all "
+            "sessions, and read the full transcript of this conversation (Dataverse conversationtranscript, through the "
+            "Business apps connector or a Power Apps export) for a step-by-step X-ray."])
     if not devmode.looks_like_devmode(text):
         raise InputError("Couldn't recognise this evidence. Paste the developer mode (-developer on) card or its Raw info "
                          "JSON, upload a Purview audit export (CSV with an AuditData column), or, if Microsoft support is "
@@ -410,14 +425,14 @@ def _evidence_files(paths: list[str]) -> list[tuple[str, bytes]]:
         if zipfile.is_zipfile(io.BytesIO(data)):
             with zipfile.ZipFile(io.BytesIO(data)) as z:
                 out += [(f"{Path(path).name}/{i.filename}", z.read(i)) for i in z.infolist()
-                        if not i.is_dir() and re.search(r"(?i)\.(json|txt|md)$", i.filename)]
+                        if not i.is_dir() and re.search(r"(?i)\.(json|txt|md|csv)$", i.filename)]
         else:
             out.append((Path(path).name, data))
     return out
 
 
 def cmd_sorry(a) -> str:
-    from ess_maker.doctor import devmode, sorry
+    from ess_maker.doctor import devmode, sorry, transcript
 
     sources, skipped = [], []
     for name, data in _evidence_files(a.evidence):
@@ -430,6 +445,13 @@ def cmd_sorry(a) -> str:
                 obj = None
         if isinstance(obj, dict) and "requests" in obj and "messages" in obj:
             sources.append(("devui", name, devui.parse(obj)))
+        elif transcript.load_sessions(text):
+            for row in transcript.load_sessions(text):
+                sources.append(("session", f"{name}#{row['session'] or len(sources) + 1}", row))
+        elif transcript.load(text):
+            docs = [d for d in transcript.load(text) if any((transcript._messages(d)[0]))]
+            for k, doc in enumerate(docs, 1):
+                sources.append(("transcript", f"{name}#{k}" if len(docs) > 1 else name, transcript.diagnose(doc)))
         elif devmode.looks_like_devmode(text):
             q, r, _ = devmode.split_header(text)
             if not q:

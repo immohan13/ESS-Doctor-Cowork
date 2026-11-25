@@ -165,10 +165,40 @@ def _rai(metrics: list[dict]) -> dict:
     return {"ran": ran, "triggered": sorted(set(triggered))}
 
 
+def _cea(req: dict, bot: dict | None, metrics: list[dict]) -> dict | None:
+    """Custom engine agent turn: Microsoft 365 Copilot hands the question to a Copilot Studio agent and shows its reply."""
+    calls = [m for m in metrics if m.get("serviceName") == "CustomEngineCopilotMcsClient"]
+    if not calls and (bot or {}).get("contentOrigin") != "CustomEngineCopilot":
+        return None
+    raw = json.dumps(req)
+    grab = lambda key: (re.search(r'%s\\*"\s*:\s*\\*"([^"\\]+)' % key, raw) or [None, ""])[1]
+    statuses = [m.get("status") or "" for m in calls]
+    return {"schema": grab("SchemaName"), "invoke_id": grab("InvokeAgentId"),
+            "latency_ms": max((m.get("latencyMilliseconds", 0) for m in calls), default=None),
+            "calls": len(calls), "failed": sum(1 for s in statuses if s in ("Failure", "Failed", "Error", "Timeout")),
+            "ok": sum(1 for s in statuses if s == "Success")}
+
+
+def _ref_title(v: dict) -> str:
+    title = _clean_title(str(v.get("title") or ""))
+    if title:
+        return title
+    content = _json(((v.get("displayData") or {}).get("content"))) or {}
+    name = content.get("providerDisplayName") or ""
+    link = v.get("targetLink") or ""
+    return name or link.rstrip("/").rsplit("/", 1)[-1] or link
+
+
 def parse(data: dict) -> dict:
     msgs = data.get("messages") or []
     turns = []
+    best: dict[str, dict] = {}
     for req in data.get("requests") or []:
+        rid = req.get("requestId", "")
+        n = len((req.get("telemetry") or {}).get("metrics") or [])
+        if rid not in best or n > len((best[rid].get("telemetry") or {}).get("metrics") or []):
+            best[rid] = req
+    for req in best.values():
         rid = req.get("requestId", "")
         user = next((m for m in msgs if m.get("author") == "user" and m.get("requestId") == rid), None)
         question = (user or {}).get("text", "")
@@ -200,11 +230,12 @@ def parse(data: dict) -> dict:
         refs = (bot or {}).get("references")
         if isinstance(refs, dict):
             for v in refs.values():
-                title = _clean_title(str(v.get("title") or "")) if isinstance(v, dict) else ""
+                title = _ref_title(v) if isinstance(v, dict) else ""
                 if title and title not in sources:
                     sources.append(title)
         turns.append({
             "request_id": rid, "question": question, "response": _clean_title((bot or {}).get("text", "")),
+            "cea": _cea(req, bot, metrics),
             "searches": _search_runs(metrics),
             "offense": (bot or {}).get("offense", ""), "sources": sources,
             "start": req.get("startTime", ""), "service_version": req.get("serviceVersion", ""),
@@ -245,8 +276,110 @@ def _relevant(f, question: str) -> bool:
     return bool(words) and any(w in text or w.rstrip("s") in text for w in words)
 
 
+_HANDOFF = re.compile(r"reach out to (hr|the people team|support)|contact (hr|askhr|the people team|your hr)|"
+                      r"(submit|create|open|raise) (a|an) (ticket|case)|talk to (hr|a person|an agent)", re.I)
+
+TRANSCRIPT_HOWTO = ("Get the Copilot Studio transcript of this conversation: in Copilot Studio open the agent, go to Analytics > "
+                    "Sessions and download the sessions for the day (CSV), or, with the Business apps connector, read the "
+                    "conversationtranscript record. Then run the X-ray on it.")
+
+
+def _build_cea(parsed: dict, t: dict, current=None) -> str:
+    """Custom engine agent turn: the export only shows the handoff to Copilot Studio, so say what it can and can't tell."""
+    q, resp, cea = t["question"], t["response"], t["cea"]
+    check = instruction_check(q, resp, current)
+    refused = bool(resp and _REFUSAL.search(resp[:600]))
+    sources = t["sources"] or (cited_sources(resp) if resp else [])
+    secs = f"{(cea['latency_ms'] or 0) / 1000:.1f} s" if cea.get("latency_ms") is not None else "unknown time"
+    agent = cea.get("schema") or t["agent_name"] or "the Copilot Studio agent"
+
+    stage = {"1": "in Copilot Studio", "2": "in Copilot Studio", "3": "ok" if resp else "no answer", "4": "ok" if resp else "no answer"}
+    if not resp or (cea["calls"] and not cea["ok"]):
+        stage["1"] = "FAILED"
+        why = (f"Microsoft 365 Copilot passed the question to {agent}, but no answer came back "
+               f"({cea['calls']} call(s), {cea['failed']} failed, {secs}).")
+    elif t["rai"]["triggered"]:
+        stage["3"] = "FAILED"
+        why = f"A Microsoft 365 Copilot safety classifier triggered on the answer ({', '.join(t['rai']['triggered'])})."
+    elif check and check["followed"] is False:
+        stage["3"] = "FAILED"
+        why = "The instructions say to decline this question, but the agent answered it."
+    elif refused:
+        why = (f"{agent} declined or found no answer. The reason is inside Copilot Studio (topic, knowledge search or "
+               "instruction), which this export doesn't record.")
+    elif _HANDOFF.search(resp[:600]):
+        refused = True
+        why = (f"{agent} sent the employee to HR or support instead of answering, most likely through a sensitive-topic, "
+               "escalation or fallback topic in Copilot Studio. The transcript shows which topic ran.")
+    else:
+        why = (f"{agent} answered" + (f", citing {len(sources)} source(s)" if sources else " without citing a source") +
+               ". No failure is visible in the handoff.")
+
+    L = [f"Conversation Investigation (DevUI trace, custom engine agent) — {parsed['conversation_id']}",
+         "Source: Copilot DevUI conversation export (Microsoft 365 Copilot handoff to a Copilot Studio agent)"
+         + (", current agent instructions" if current is not None else ""),
+         f"Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}"]
+    L += _section("User question"); L.append(f'"{q}"')
+    L += _section("Agent response"); L.append(resp or "(no response)")
+    L += _section("What happened")
+    L.append(why)
+    L.append(f"This is a custom engine agent: Microsoft 365 Copilot handed the question to {agent} in Copilot Studio "
+             f"({cea['calls']} call(s), {secs}) and showed its reply. Planning, knowledge search, topics and tools ran "
+             "inside Copilot Studio; this export records only the handoff and Microsoft 365 Copilot's safety checks.")
+    L.append(f"Answer: {len(sources)} source(s) cited" + (f" ({', '.join(sources[:4])})." if sources else "."))
+
+    L += _section("Where it went wrong")
+    labels = {"1": PIPELINE_ORDER[0], "2": PIPELINE_ORDER[1], "3": PIPELINE_ORDER[2], "4": PIPELINE_ORDER[3]}
+    first_fail = next((k for k in "1234" if stage[k] == "FAILED"), None)
+    for k in "1234":
+        mark = "◀ FAILED HERE" if k == first_fail else ("affected (downstream)" if first_fail and k > first_fail and stage[k] == "ok" else stage[k])
+        L.append(f"  {labels[k]:<30} {mark}")
+
+    if check:
+        L += _section("Instruction check")
+        for r in check["rules"]:
+            L.append(f'Rule (line {r["line"]}): "{r["text"][:260]}"')
+        L.append(f"Expected: {check['expected']}. Observed: {check['observed']}.")
+        L.append("Result: " + ("INSTRUCTION FOLLOWED" if check["followed"] else "INSTRUCTION NOT FOLLOWED"))
+
+    L += _section("Key details")
+    rows = [("Agent (Copilot Studio)", cea.get("schema")), ("Agent", t["agent_name"]),
+            ("Agent version", t["agent"].get("version", "")), ("Tenant ID", t["tenant"]), ("Surface", t["app_host"]),
+            ("Request ID", t["request_id"]), ("Start time", t["start"]),
+            ("Copilot Studio handoff", f"{cea['calls']} call(s), {cea['ok']} succeeded, {cea['failed']} failed, longest {secs}")]
+    L += [f"{k + ':':<24}{v}" for k, v in rows if v]
+
+    L += _section("1 Planner / tool selection")
+    L.append("Inside Copilot Studio: not in this export. The Copilot Studio transcript shows the plan, topics and tools.")
+    L += _section("2 Search / tool execution")
+    L.append("Inside Copilot Studio: not in this export. The transcript shows knowledge searches and their results.")
+    if sources:
+        L.append("Cited in the answer: " + ", ".join(sources[:8]))
+    L += _section("3 Synthesis & safety")
+    L.append(f"Microsoft 365 Copilot safety classifiers run: {len(t['rai']['ran'])}; triggered: {', '.join(t['rai']['triggered']) or 'none'}")
+
+    L += _section("Recommended next steps")
+    steps = []
+    if stage["1"] == "FAILED":
+        steps.append(f"Open {agent} in Copilot Studio and ask the same question in the Test pane; check that it's published "
+                     "and that its connections are signed in.")
+    if refused or stage["1"] == "FAILED" or (check and check["followed"] is False):
+        steps.append(TRANSCRIPT_HOWTO)
+    if not steps:
+        steps.append("No action needed for the handoff. If the answer is still wrong, X-ray the Copilot Studio transcript: "
+                     + TRANSCRIPT_HOWTO[0].lower() + TRANSCRIPT_HOWTO[1:])
+    L += [f"{i}. {s}" for i, s in enumerate(steps, 1)]
+
+    L += _section("What this trace can't see")
+    L.append("For custom engine agents, the plan, topics, knowledge searches, tool calls and the agent's instructions stay in "
+             "Copilot Studio. The Copilot Studio transcript of the same conversation shows them.")
+    return "\n".join(L)
+
+
 def build(parsed: dict, turn_index: int = 0, *, current=None, findings: list | None = None) -> str:
     t = parsed["turns"][turn_index]
+    if t.get("cea"):
+        return _build_cea(parsed, t, current)
     q, resp = t["question"], t["response"]
     served = from_instructions(t["instructions"], "served") if t["instructions"] else None
     check = instruction_check(q, resp, served or current)
