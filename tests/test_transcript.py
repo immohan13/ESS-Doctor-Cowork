@@ -486,3 +486,40 @@ def test_sorry_triage_reads_snapshots_and_app_insights_exports():
     assert "Employee details weren't loaded" in report
     assert "Copilot Studio returned a system error" in report
     assert "Skipped" not in report and "MISSING" not in report
+
+
+def test_agent_audit_finds_multi_agent_gaps():
+    from ess_maker.doctor import audit
+
+    def ks(name, source):
+        return (f"  - kind: KnowledgeSourceComponent\n    displayName: {name}\n    schemaName: x.knowledge.{name}\n"
+                f"    description: This knowledge source provides information found in {name} SharePoint.\n"
+                f"    state: Active\n    configuration:\n      source:\n{source}\n")
+
+    hub = ("kind: BotDefinition\nentity:\n  schemaName: contoso_core\n  configuration:\n    aISettings:\n"
+           "      contentModeration: Low\n      optInUseLatestModels: true\ncomponents:\n"
+           "  - kind: GptComponent\n    displayName: Contoso Hub\n    schemaName: contoso_core.gpt.default\n"
+           "    metadata:\n      instructions: |-\n        # Core identity\n        You route employees to HR or IT. Child agents own domain answers; do not answer them yourself.\n"
+           "      gptCapabilities: {}\n"
+           + ks("Benefits", "        kind: SharePointSearchSource\n        site: https://contoso.sharepoint.com/sites/benefits")
+           + "  - kind: DialogComponent\n    displayName: Contoso HR\n    schemaName: contoso_core.InvokeConnectedAgentTaskAction.ContosoHR\n"
+             "    state: Active\n    dialog:\n      kind: TaskDialog\n      modelDescription: Get personalized HR support, simply ask.\n"
+             "      action:\n        kind: InvokeConnectedAgentTaskAction\n        botSchemaName: contoso_hr\n"
+             "        historyType:\n          kind: ConversationHistory\n")
+    child = ("kind: BotDefinition\nentity:\n  schemaName: contoso_hr\n  configuration:\n    isAgentConnectable: false\n"
+             "    aISettings:\n      contentModeration: Medium\n      optInUseLatestModels: false\ncomponents:\n"
+             "  - kind: GptComponent\n    displayName: Contoso HR\n    schemaName: contoso_hr.gpt.default\n"
+             "    metadata:\n      instructions: |-\n        # Core identity\n        You are an HR agent.\n      gptCapabilities: {}\n"
+             + ks("Benefits", "        kind: SharePointSearchSource\n        site: https://contoso.sharepoint.com/sites/benefits")
+             + ks("Benefits-401k", "        kind: SharePointSearchSource\n        site: https://contoso.sharepoint.com/sites/benefits/SitePages/401k.aspx")
+             + ks("SNOW-A", "        kind: GraphConnectorSearchSource\n        connectionName: ServiceNowKB")
+             + ks("SNOW-B", "        kind: GraphConnectorSearchSource\n        connectionName: ServiceNowKB"))
+
+    r = audit.audit([audit.parse(hub, "hub.yml"), audit.parse(child, "hr.yml")])
+    ids = {g.rule_id for g in r["gaps"]}
+
+    assert r["hub"].name == "Contoso Hub" and r["children"][0][1].name == "Contoso HR"
+    assert {"A01-HUB-KNOWLEDGE", "A02-DUP-KNOWLEDGE-HUB-CHILD", "A04-DUP-KNOWLEDGE-IN-AGENT", "A05-OVERLAPPING-KNOWLEDGE",
+            "A12-CHILD-NOT-CONNECTABLE", "A13-HISTORY-TO-EVERY-CHILD", "A14-CHILD-DESCRIPTION-VAGUE",
+            "A16-HUB-DELEGATION-RULES", "A17-MODERATION-BELOW-TEMPLATE", "A18-MODEL-SETTINGS-DIFFER"} <= ids
+    assert "A06-KNOWLEDGE-OVER-25" not in ids

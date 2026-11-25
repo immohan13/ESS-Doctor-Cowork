@@ -717,6 +717,104 @@ def cmd_sorry(a) -> str:
     return md
 
 
+def _agent_files(paths: list[str]) -> list[tuple[str, str]]:
+    """(name, YAML text) for each agent: .yml/.yaml files, test pane snapshots, or zips holding either."""
+    out: list[tuple[str, str]] = []
+
+    def add(name: str, data: bytes, depth: int = 0) -> None:
+        snap = _snapshot(data)
+        if snap:
+            if snap[1]:
+                out.append((name, snap[1]))
+            return
+        if zipfile.is_zipfile(io.BytesIO(data)) and depth < 2:
+            with zipfile.ZipFile(io.BytesIO(data)) as z:
+                for i in z.infolist():
+                    if not i.is_dir() and re.search(r"(?i)\.(ya?ml|zip)$", i.filename):
+                        add(f"{name}/{Path(i.filename).name}", z.read(i), depth + 1)
+            return
+        out.append((name, _text(data)))
+
+    for p in paths:
+        add(Path(p).name, _read(p))
+    return out
+
+
+def cmd_audit(a) -> str:
+    from ess_maker.doctor import audit
+
+    agents = [audit.parse(text, name) for name, text in _agent_files(a.agents)]
+    agents = [x for x in agents if x.instructions or x.knowledge or x.topics or x.connected]
+    if not agents:
+        raise InputError("No agents found. Upload each agent's test pane snapshot (.zip) or its YAML (botContent.yml, "
+                         "or the agent's GptComponent), for the hub and every child agent.")
+    r = audit.audit(agents)
+    hub, gaps = r["hub"], r["gaps"]
+    kids = [k for _, k, _ in r["children"] if k]
+    role = {id(hub): "Hub"} if hub else {}
+    role.update({id(k): "Child" for k in kids})
+
+    checks = {}
+    for x in agents:
+        if not x.instructions:
+            continue
+        base = baseline(x.persona) if x.persona in TEMPLATE_MODERATION else None
+        doc = from_instructions(x.instructions, x.name, "audit")
+        checks[id(x)] = [f for f in validate(doc, base) if f.origin != "template"]
+
+    md = ["## Agent audit", ""]
+    if hub:
+        md.append(f"Hub **{_cell(hub.name)}** routes to {len(r['children'])} agent(s); "
+                  f"{len(kids)} of them uploaded and audited.")
+    else:
+        md.append("No hub (an agent that routes to other agents) was found, so each agent is audited on its own.")
+    md += ["", "| Agent | Role | Knowledge sources | Topics that search | Connected agents | Instructions | Instruction findings | Moderation |",
+           "| --- | --- | --- | --- | --- | --- | --- | --- |"]
+    for x in sorted(agents, key=lambda x: (role.get(id(x), "Other") != "Hub", role.get(id(x), "Other") != "Child", x.name)):
+        fs = checks.get(id(x), [])
+        sev = " · ".join(f"{_SEV[s]} {n}" for s in ("high", "medium") if (n := sum(1 for f in fs if f.severity == s)))
+        ks = f"{len(x.knowledge)}" + (" ⚠️" if len([k for k in x.knowledge if k.active]) > audit.KNOWLEDGE_FILTER_LIMIT else "")
+        md.append(f"| {_cell(x.name)} | {role.get(id(x), 'Other')} | {ks if x.full_export else '—'} | "
+                  f"{sum(1 for t in x.topics if t.active and t.searches) if x.full_export else '—'} | "
+                  f"{len(x.connected) or len(x.instruction_refs) or '—'} | "
+                  f"{studio_len(x.instructions):,} characters | {sev or ('✅ none' if x.instructions else '—')} | "
+                  f"{x.settings.get('contentModeration', '—')} |")
+    md.append("")
+
+    real = [g for g in gaps if g.severity != "info"]
+    md += ["### Gaps across the agents", ""]
+    if not real:
+        md += ["✅ No cross-agent gaps found.", ""]
+    for i, g in enumerate(real, 1):
+        md += [f"{i}. {_SEV.get(g.severity, '')} **{_cell(g.title)}**  ",
+               f"   {', '.join(_cell(n) for n in g.agents)} · `{g.rule_id}` · {g.severity}",
+               f"   - **Why it matters:** {_cell(g.detail)}",
+               f"   - **Fix:** {_cell(g.fix)}", ""]
+
+    rows = [(x, checks[id(x)]) for x in agents if checks.get(id(x))]
+    md += ["### Instruction check per agent", ""]
+    if rows:
+        md += ["| Agent | Top findings |", "| --- | --- |"]
+        for x, fs in rows:
+            top = sorted(fs, key=lambda f: {"high": 0, "medium": 1, "low": 2}.get(f.severity, 3))[:3]
+            md.append(f"| {_cell(x.name)} | " + "<br>".join(f"{_SEV.get(f.severity, '')} {_cell(f.title)} (line {_lines(f.to_dict())})"
+                                                          for f in top) + " |")
+        md += ["", "Run the instruction check on an agent for every finding and its fix.", ""]
+    else:
+        md += ["✅ No instruction findings beyond the ESS template.", ""]
+
+    notes = [g for g in gaps if g.severity == "info"]
+    partial = [x.name for x in agents if not x.full_export]
+    if notes or partial:
+        md += ["### Not checked", ""]
+        md += [f"- {_cell(g.title)}: {_cell(g.fix)}" for g in notes]
+        if partial:
+            md.append(f"- {', '.join(_cell(n) for n in partial)}: the file has only the instructions, so knowledge sources, "
+                      "topics and settings weren't checked. Upload the agent's test pane snapshot for a full audit.")
+        md.append("")
+    return "\n".join(md)
+
+
 def cmd_eval_triage(a) -> str:
     doc = load_agent(a.instructions)
     r = evaltriage.triage(_text(_read(a.csv)), doc)
@@ -914,6 +1012,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("conversation_id")
     p.add_argument("--days", type=int, default=7, help="How many days back to search")
     p.set_defaults(fn=cmd_logs_query)
+
+    p = sub.add_parser("audit", help="Audit a hub agent and its child agents together (knowledge, routing, settings, instructions)")
+    p.add_argument("agents", nargs="+", help="Each agent's test pane snapshot (.zip) or YAML; a zip of several also works")
+    p.set_defaults(fn=cmd_audit)
 
     p = sub.add_parser("sorry-triage", help="Why the agent said sorry across many conversations (DevUI exports, developer mode cards)")
     p.add_argument("evidence", nargs="+", help="DevUI exports (.json), developer mode cards (.txt) or a .zip of them")

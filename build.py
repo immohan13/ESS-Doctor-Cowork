@@ -22,7 +22,7 @@ DIST = HERE / "dist"
 PLUGIN_SRC = HERE / "plugin"
 
 # Engine modules (standard library only); the plugin works on files the maker uploads.
-ENGINE = ["agent_file", "appinsights", "blocks", "condense", "devmode", "devmode_report", "devui", "drafter", "evalset",
+ENGINE = ["agent_file", "appinsights", "audit", "blocks", "condense", "devmode", "devmode_report", "devui", "drafter", "evalset",
           "evaltriage", "evidence", "fixes", "known_issues", "practices", "report", "rules", "setup_servicenow", "sorry",
           "transcript"]
 
