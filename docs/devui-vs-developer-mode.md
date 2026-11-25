@@ -65,19 +65,22 @@ The example sizes come from one ESS HR conversation ("compare my salary with ama
 
 A custom engine agent is a Copilot Studio agent that Microsoft 365 Copilot hands the question to. Its planning, topics, knowledge search and tools run inside Copilot Studio, so the evidence is different:
 
-| What it shows | DevUI export | Copilot Studio transcript (Dataverse `conversationtranscript`) | Copilot Studio Analytics > Sessions download |
-| --- | --- | --- | --- |
-| Who can get it | Microsoft support and engineering only | Makers with the Bot Transcript Viewer role (Business apps connector, Power Apps export) | Makers with the Bot Transcript Viewer role |
-| Question and answer | Yes | Yes (answers grounded on SharePoint are stored as REDACTED) | Yes (each reply cut at 512 characters) |
-| Handoff to Copilot Studio (calls, latency, status) | Yes | No | No |
-| Microsoft 365 Copilot safety classifiers | Yes | No | No |
-| Plan, topics and tools that ran | No | Yes | Last topic only |
-| Knowledge searches and results | No | Yes, when recorded | No |
-| Failed steps and errors | Handoff failures only | Yes | Outcome and outcome reason |
-| Connection consent prompts | No | Yes | No |
-| Many conversations at once | One export per conversation | One record per conversation | Yes, every session of the last 28 days |
+| What it shows | DevUI export | Test pane snapshot | Copilot Studio transcript (Dataverse `conversationtranscript`) | Application Insights logs | Copilot Studio Analytics > Sessions download |
+| --- | --- | --- | --- | --- | --- |
+| Who can get it | Microsoft support and engineering only | The maker, in the Copilot Studio test pane (⋯ > Save snapshot) | Makers with the Bot Transcript Viewer role (Business apps connector, Power Apps export) | Anyone with the Reader role on the Application Insights resource, once telemetry is set up | Makers with the Bot Transcript Viewer role |
+| Real employee conversations | Yes | No, only the maker's own test chats | Yes | Yes (and test chats) | Yes |
+| Question and answer | Yes | Yes, full text | Yes (answers grounded on SharePoint are stored as REDACTED) | Yes (agent-level telemetry needs Log conversation details) | Yes (each reply cut at 512 characters) |
+| Instructions and topic setup (for example an empty user context topic) | No | Yes (`botContent.yml`) | No | No | No |
+| Handoff to Copilot Studio (calls, latency, status) | Yes | No | No | No | No |
+| Microsoft 365 Copilot safety classifiers | Yes | No | No | No | No |
+| Plan, topics and tools that ran | No | Yes | Yes | Tools; topics with agent-level node execution events | Last topic only |
+| Knowledge searches and results | No | Yes, with document names | Yes, when recorded | Yes, tool arguments and results | No |
+| Failed steps and errors | Handoff failures only | Yes | Yes | Yes, with error status and message | Outcome and outcome reason |
+| Connection consent prompts | No | Yes | Yes | Not documented | No |
+| When it's available | After the conversation | Immediately | About 30 minutes after the conversation goes idle | Minutes; up to 24 hours after telemetry is first set up | — |
+| Many conversations at once | One export per conversation | One snapshot per test chat | One record per conversation | Yes, by query | Yes, every session of the last 28 days |
 
-ESS Doctor reads all three. A DevUI export of a custom engine agent turn is reported as a handoff ("in Copilot Studio") instead of an ungrounded answer, and points to the transcript for the plan and searches.
+ESS Doctor reads all five. A DevUI export of a custom engine agent turn is reported as a handoff ("in Copilot Studio") instead of an ungrounded answer, and points to the transcript for the plan and searches. The `conversation-logs` skill writes the Application Insights query for a conversation ID. For the fullest picture of one employee's conversation, combine its transcript or Application Insights logs with a test pane snapshot of the agent, which adds the instructions and topic setup.
 
 ## What customers can't get today
 

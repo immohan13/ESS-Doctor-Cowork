@@ -453,7 +453,8 @@ _LABEL = {"sessionOutcome": "Session outcome", "turns": "Turns", "activities": "
 
 
 def build(text: str, *, question: str = "", response: str = "", current=None, snapshot: bool = False,
-          bot_yaml: str = "") -> str:
+          bot_yaml: str = "", kind: str = "", extra_happened: list[str] | None = None) -> str:
+    kind = kind or ("snapshot" if snapshot else "transcript")
     docs = load(text)
     if not docs:
         raise ValueError("No Copilot Studio transcript found.")
@@ -470,7 +471,7 @@ def build(text: str, *, question: str = "", response: str = "", current=None, sn
                  "the answer step's content moderation stopped it.")
     if check and check["followed"] is False:
         cause = "The instructions say to decline this question, but the agent answered it."
-    happened = list(d["happened"])
+    happened = list(d["happened"]) + list(extra_happened or [])
     steps = list(d["next_steps"])
     bf = bot_findings(bot_yaml)
     if bf["empty_context_topics"]:
@@ -494,8 +495,11 @@ def build(text: str, *, question: str = "", response: str = "", current=None, sn
     keys = ["planner", "search", "synthesis", "render"]
     first = next((k for k in keys if st.get(k) == FAILED), None)
 
-    L = [f"Conversation Investigation (Copilot Studio {'test pane snapshot' if snapshot else 'transcript'}) — {d['conversation'] or 'conversation ID not in transcript'}",
-         f"Source: {'Copilot Studio test pane snapshot (dialog.json, botContent.yml)' if snapshot else SOURCE_LABEL}" + (", agent instructions" if current is not None else "")
+    title = {"snapshot": "test pane snapshot", "appinsights": "Application Insights logs"}.get(kind, "transcript")
+    label = {"snapshot": "Copilot Studio test pane snapshot (dialog.json, botContent.yml)",
+             "appinsights": "Application Insights telemetry of the Copilot Studio agent"}.get(kind, SOURCE_LABEL)
+    L = [f"Conversation Investigation (Copilot Studio {title}) — {d['conversation'] or 'conversation ID not in the evidence'}",
+         f"Source: {label}" + (", agent instructions" if current is not None else "")
          + (f" ({len(docs)} transcripts in the file; picked the one with this question)" if len(docs) > 1 else ""),
          f"Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}"]
     L += _section("User question"); L.append(f'"{q}"' if q else "Not in the transcript.")
@@ -534,10 +538,14 @@ def build(text: str, *, question: str = "", response: str = "", current=None, sn
     if current is None:
         steps.append("Add the agent's instructions to check which instruction line applies.")
     L += [f"{i}. {s}" for i, s in enumerate(steps, 1)]
-    L += _section("What this transcript can't see")
-    if not snapshot:
+    L += _section("What this transcript can't see" if kind == "transcript" else "What this evidence can't see")
+    if kind == "transcript":
         L.append("- Text of answers grounded on SharePoint knowledge, which transcripts store as REDACTED.")
+    if kind == "appinsights":
+        L.append("- Topic and instruction setup, such as an empty user context topic; a test pane snapshot shows those.")
+        L.append("- Message text and tool arguments and results unless the telemetry settings log them (agent-level: Log "
+                 "conversation details; environment-level spans include them by default).")
     L.append("- Microsoft 365 Copilot's own steps for the same conversation (the handoff and its safety checks); a DevUI export shows those.")
-    if not snapshot:
+    if kind == "transcript":
         L.append("- Transcripts are saved about 30 minutes after the conversation goes idle, and reading them needs the Bot Transcript Viewer role.")
     return "\n".join(L)

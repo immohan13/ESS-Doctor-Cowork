@@ -365,6 +365,16 @@ def _snapshot(data: bytes) -> tuple[str, str] | None:
         return _text(z.read(dialog)), (_text(z.read(bot)) if bot else "")
 
 
+def cmd_logs_query(a) -> str:
+    from ess_maker.doctor import appinsights
+
+    cid = a.conversation_id.strip()
+    if not re.fullmatch(r"[\w\-:.]{6,200}", cid):
+        raise InputError("Give the conversation ID exactly as Copilot Studio shows it (for example from /debug conversationid).")
+    days = max(1, min(a.days, 90))
+    return "\n".join(["```kusto", appinsights.QUERY.format(cid=cid, days=days), "```", "", appinsights.HOWTO])
+
+
 def cmd_xray(a) -> str:
     data = _read(a.evidence)
     snap = _snapshot(data)
@@ -380,6 +390,22 @@ def cmd_xray(a) -> str:
                                              bot_yaml=bot_yaml) + "\n```"
     text = _text(data).lstrip("\ufeff")
     current = load_agent(a.instructions, "Current instructions") if a.instructions else None
+    from ess_maker.doctor import appinsights
+
+    if appinsights.is_export(text):
+        from ess_maker.doctor import transcript
+
+        acts, info = appinsights.to_activities(text, a.conversation)
+        if not acts:
+            raise InputError("The Application Insights export has no prompts, replies or tool calls for this conversation. "
+                             "Check the conversation ID and the lookback period, and that the agent's telemetry logs "
+                             "conversation details.")
+        extra = [f"Telemetry: {info['spans']} span(s) and {info['events']} event(s)"
+                 + (f"; channel {info['channel']}" if info["channel"] else "")
+                 + (f"; model {info['model']}" if info["model"] else "") + "."]
+        extra += [f"Logged by a topic: {m}" for m in info["logger"][:5]]
+        return "```text\n" + transcript.build(json.dumps({"activities": acts}), question=a.question, response=a.response,
+                                             current=current, kind="appinsights", extra_happened=extra) + "\n```"
     stripped = text.lstrip()
     if stripped.startswith("{"):
         try:
@@ -622,7 +648,13 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--turn", type=int, default=0, help="1-based turn number")
     p.add_argument("--agent", default="", help="Purview: only this agent name or ID")
     p.add_argument("--response", default="", help="Developer mode card: the agent's answer, to check the answer stage")
+    p.add_argument("--conversation", default="", help="Application Insights export: only this conversation ID")
     p.set_defaults(fn=cmd_xray)
+
+    p = sub.add_parser("logs-query", help="Application Insights query (KQL) for one custom engine agent conversation")
+    p.add_argument("conversation_id")
+    p.add_argument("--days", type=int, default=7, help="How many days back to search")
+    p.set_defaults(fn=cmd_logs_query)
 
     p = sub.add_parser("sorry-triage", help="Why the agent said sorry across many conversations (DevUI exports, developer mode cards)")
     p.add_argument("evidence", nargs="+", help="DevUI exports (.json), developer mode cards (.txt) or a .zip of them")

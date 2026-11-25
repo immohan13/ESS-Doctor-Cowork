@@ -210,3 +210,60 @@ def test_context_draft_lands_in_context_handling_section():
     added = next(i for i, ln in enumerate(lines) if "user context values" in ln)
     assert lines.index("#Context handling") < added < lines.index("#When unsure")
     assert "never put names, emails or IDs in search queries" in lines[added]
+
+
+def test_application_insights_spans_become_an_xray_report():
+    import contextlib
+    import tempfile
+    from pathlib import Path
+    import essdoctor_cli
+    from ess_maker.doctor import appinsights
+
+    cid = "aaaaa111-1a1a-1111-1aa1-a111111a11a1"
+    common = {"gen_ai.conversation.id": cid, "microsoft.channel.name": "msteams", "gen_ai.request.model": "gpt-x"}
+    rows = [
+        ("2026-11-24T10:00:00Z", "dependency", "InvokeAgent", "OK", "True",
+         {**common, "gen_ai.operation.name": "invoke_agent",
+          "gen_ai.input.messages": json.dumps([{"role": "user", "parts": [{"type": "text", "content": "what is my leave policy"}]}])}),
+        ("2026-11-24T10:00:01Z", "dependency", "ExecuteTool", "OK", "True",
+         {**common, "gen_ai.operation.name": "execute_tool", "gen_ai.tool.name": "workiqsharepoint:mcp_SharePointRemoteServer",
+          "gen_ai.tool.call.arguments": json.dumps({"query": "leave policy alex@contoso.com"}),
+          "gen_ai.tool.call.result": json.dumps({"results": [{"title": "Leave-Policy-USA.aspx", "url": "https://x/1"},
+                                                              {"title": "Leave-Policy-UK.aspx", "url": "https://x/2"}]})}),
+        ("2026-11-24T10:00:02Z", "dependency", "ExecuteTool", "ERROR", "False",
+         {**common, "gen_ai.operation.name": "execute_tool", "gen_ai.tool.name": "Workday-GetLeaveBalance",
+          "Status.code": "2", "Status.message": "401 Unauthorized"}),
+        ("2026-11-24T10:00:03Z", "dependency", "OutputMessages", "OK", "True",
+         {**common, "gen_ai.operation.name": "output_messages",
+          "gen_ai.output.messages": json.dumps([{"role": "assistant", "parts": [{"type": "text", "content": "I couldn't verify your country, so here is the base policy."}]}])}),
+        ("2026-11-24T10:00:04Z", "customEvent", "ESS_UserContext", "", "",
+         {"Message": "Country code is empty", "ConversationId": cid}),
+        ("2026-11-24T10:00:05Z", "dependency", "InvokeAgent", "OK", "True",
+         {"gen_ai.conversation.id": "other-conversation", "gen_ai.input.messages": "unrelated"}),
+    ]
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["timestamp [UTC]", "itemType", "name", "resultCode", "success", "operation_Id", "session_Id", "customDimensions"])
+    for ts, it, name, rc, ok, cd in rows:
+        w.writerow([ts, it, name, rc, ok, "op", "", json.dumps(cd)])
+
+    acts, info = appinsights.to_activities(buf.getvalue(), cid)
+    d = transcript.diagnose({"activities": acts})
+    with tempfile.TemporaryDirectory() as tmp:
+        f = Path(tmp) / "logs.csv"
+        f.write_text(buf.getvalue(), encoding="utf-8")
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            assert essdoctor_cli.main(["xray", str(f), "--conversation", cid]) == 0
+    report = out.getvalue()
+
+    assert appinsights.is_export(buf.getvalue())
+    assert d["question"] == "what is my leave policy"
+    assert d["response"].startswith("I couldn't verify your country")
+    assert d["failed"] == ["Workday-GetLeaveBalance: 401 Unauthorized"]
+    assert any("2 result(s)" in s and "Leave-Policy-USA.aspx" in s for s in d["searches"])
+    assert any("name or email" in h for h in d["happened"])
+    assert info["logger"] == ["ESS_UserContext: Country code is empty"]
+    assert "unrelated" not in json.dumps(acts)
+    assert "Conversation Investigation (Copilot Studio Application Insights logs)" in report
+    assert "Logged by a topic: ESS_UserContext: Country code is empty" in report

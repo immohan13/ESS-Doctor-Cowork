@@ -27,7 +27,14 @@ Also ask for 2–4 example questions that **should** change (`should_affect`) an
 Save the instructions to `inputs/current.txt` (or use the uploaded agent file), and the details to `inputs/intake.json`, for example:
 
 ```json
-{ "change_type": "restricted", "intent": "Don't compare our salaries with other companies", "subject": "salary comparisons with other companies", "allowed": "our own pay bands and policies", "should_affect": ["How does my pay compare to Contoso?"], "must_not_affect": ["What is my pay band?"] }
+{
+  "change_type": "restricted",
+  "intent": "Don't compare our salaries with other companies",
+  "subject": "salary comparisons with other companies",
+  "allowed": "our own pay bands and policies",
+  "should_affect": ["How does my pay compare to Contoso?"],
+  "must_not_affect": ["What is my pay band?"]
+}
 ```
 
 ## Run

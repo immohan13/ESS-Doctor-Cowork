@@ -8,10 +8,11 @@ It runs as a Microsoft Copilot Cowork plugin. Makers with Cowork upload their ag
 
 | Skill | What it does |
 | --- | --- |
-| `conversation-xray` | Explain one conversation of a declarative agent (developer mode card, Purview audit export, DevUI export) or a custom engine agent (Copilot Studio transcript, DevUI handoff): tool identification, tool execution, search, summary and recommended fixes |
+| `conversation-xray` | Explain one conversation of a declarative agent (developer mode card, Purview audit export, DevUI export) or a custom engine agent (test pane snapshot, Copilot Studio transcript, Application Insights logs, DevUI handoff): tool identification, tool execution, search, summary and recommended fixes, then draft the instruction fix |
+| `conversation-logs` | Look up a custom engine agent conversation by its ID in Application Insights: writes the query, then X-rays the exported CSV |
 | `sorry-triage` | Rank why the agent says sorry across many conversations (developer mode cards, Copilot Studio sessions download and transcripts, DevUI exports), with an owner and fix per cause |
 | `instruction-check` | Check instructions against the ESS template, known issues and authoring practices; show what a change broke; apply safe fixes; shorten to 8,000 characters |
-| `instruction-draft` | Draft a change (terminology, restriction, format, routing, escalation, persona, disclaimer) in the right section, then check it |
+| `instruction-draft` | Draft a change (terminology, restriction, format, routing, escalation, persona, disclaimer, employee context) in the right section, then check it |
 | `eval-triage` | Explain failed evaluation questions and compare two runs |
 | `servicenow-setup` | ServiceNow Knowledge connector setup checklist with silent-failure risks and per-role to-dos |
 
