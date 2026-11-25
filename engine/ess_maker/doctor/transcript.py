@@ -31,10 +31,16 @@ def _activities_of(doc) -> list[dict]:
     return []
 
 
+def _looks_like_activity(x) -> bool:
+    return isinstance(x, dict) and "type" in x and any(k in x for k in ("from", "valueType", "timestamp", "channelId"))
+
+
 def _content_docs(obj) -> list[dict]:
     """Transcript documents from a raw transcript, a Dataverse row, a list of rows or an OData response."""
     if isinstance(obj, dict) and isinstance(obj.get("activities"), list):
         return [obj]
+    if isinstance(obj, list) and obj and all(_looks_like_activity(x) for x in obj[:20]):
+        return [{"activities": obj}]
     if isinstance(obj, dict) and isinstance(obj.get("value"), list):
         return _content_docs(obj["value"])
     if isinstance(obj, dict):
@@ -167,6 +173,7 @@ def _head(s: str, n: int) -> str:
 def diagnose(doc: dict, question: str = "") -> dict:
     acts = _activities_of(doc)
     users, bots = [], []
+    seq: list[tuple[str, str]] = []
     planned, ran, failed, topics, searches, answer_states, errors = [], [], [], [], [], [], []
     empty = 0
     unknown_intent = design = consent = False
@@ -180,10 +187,14 @@ def diagnose(doc: dict, question: str = "") -> dict:
             if re.search(r"consentCard|connectionManagerCard|oauthCard|signinCard", vt_raw + " " + str(a.get("name") or ""), re.I):
                 consent = True
             if (a.get("from") or {}).get("role") == 1:
-                if text:
+                if text and not re.match(r"\s*(/|-developer\b)", text):
                     users.append(text)
+                    seq.append(("user", text))
+                elif text:
+                    seq.append(("command", text))
             elif text:
                 bots.append(text)
+                seq.append(("bot", text))
             continue
         vt = (vt_raw or a.get("name") or "").lower()
         if vt == "dialogtracing":
@@ -301,9 +312,15 @@ def diagnose(doc: dict, question: str = "") -> dict:
     details.update({"activities": str(len(acts)), "testPane": "yes" if design else "",
                     "planned": ", ".join(uniq(planned)), "topics": ", ".join(uniq(topics)),
                     "failedSteps": "; ".join(failed), "knowledgeSearches": str(len(searches)) if searches else ""})
+    q_low = (question or "").strip().lower()[:60]
+    qi = next((i for i in range(len(seq) - 1, -1, -1) if seq[i][0] == "user" and q_low and q_low in seq[i][1].lower()), None)
+    if qi is None:
+        qi = next((i for i in range(len(seq) - 1, -1, -1) if seq[i][0] == "user"), None)
+    asked = seq[qi][1] if qi is not None else ""
+    reply = next((t for r, t in seq[qi + 1:] if r == "bot"), "") if qi is not None else (bots[-1] if bots else "")
     return {"stages": stages, "happened": happened, "likely_cause": cause, "next_steps": steps,
             "details": {k: v for k, v in details.items() if v},
-            "question": users[-1] if users else "", "response": bots[-1] if bots else "",
+            "question": asked, "response": reply,
             "searches": searches, "topics": uniq(topics), "planned": uniq(planned), "ran": uniq(ran), "failed": failed,
             "consent": consent, "conversation": _conversation_id(acts)}
 
@@ -324,7 +341,7 @@ _LABEL = {"sessionOutcome": "Session outcome", "turns": "Turns", "activities": "
           "planned": "Planned", "topics": "Topics", "failedSteps": "Failed steps", "knowledgeSearches": "Knowledge searches"}
 
 
-def build(text: str, *, question: str = "", response: str = "", current=None) -> str:
+def build(text: str, *, question: str = "", response: str = "", current=None, snapshot: bool = False) -> str:
     docs = load(text)
     if not docs:
         raise ValueError("No Copilot Studio transcript found.")
@@ -344,8 +361,8 @@ def build(text: str, *, question: str = "", response: str = "", current=None) ->
     keys = ["planner", "search", "synthesis", "render"]
     first = next((k for k in keys if st.get(k) == FAILED), None)
 
-    L = [f"Conversation Investigation (Copilot Studio transcript) — {d['conversation'] or 'conversation ID not in transcript'}",
-         f"Source: {SOURCE_LABEL}" + (", agent instructions" if current is not None else "")
+    L = [f"Conversation Investigation (Copilot Studio {'test pane snapshot' if snapshot else 'transcript'}) — {d['conversation'] or 'conversation ID not in transcript'}",
+         f"Source: {'Copilot Studio test pane snapshot (dialog.json, botContent.yml)' if snapshot else SOURCE_LABEL}" + (", agent instructions" if current is not None else "")
          + (f" ({len(docs)} transcripts in the file; picked the one with this question)" if len(docs) > 1 else ""),
          f"Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}"]
     L += _section("User question"); L.append(f'"{q}"' if q else "Not in the transcript.")
@@ -384,5 +401,6 @@ def build(text: str, *, question: str = "", response: str = "", current=None) ->
     L += _section("What this transcript can't see")
     L.append("- Text of answers grounded on SharePoint knowledge, which transcripts store as REDACTED.")
     L.append("- Microsoft 365 Copilot's own steps for the same conversation (the handoff and its safety checks); a DevUI export shows those.")
-    L.append("- Transcripts are saved about 30 minutes after the conversation goes idle, and reading them needs the Bot Transcript Viewer role.")
+    if not snapshot:
+        L.append("- Transcripts are saved about 30 minutes after the conversation goes idle, and reading them needs the Bot Transcript Viewer role.")
     return "\n".join(L)

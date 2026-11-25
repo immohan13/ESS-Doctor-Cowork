@@ -88,6 +88,34 @@ def test_sessions_download_rows_feed_sorry_triage():
     assert [i.cause for i in items] == ["cea-inside", "no-tool-match"]
 
 
+def test_test_pane_snapshot_skips_commands_and_reads_instructions():
+    import zipfile
+    from pathlib import Path
+    import tempfile
+    import essdoctor_cli
+
+    acts = [
+        {"type": "message", "from": {"role": 1}, "text": "what is relocation benefit", "timestamp": 1},
+        {"type": "event", "valueType": "UniversalSearchToolTraceData", "value": {"searchTerms": "relocation benefit", "fullResults": [1, 2]}, "timestamp": 2},
+        {"type": "message", "from": {"role": 0}, "text": "Relocation covers moving costs.", "timestamp": 3},
+        {"type": "message", "from": {"role": 1}, "text": "/debug conversationid", "timestamp": 4},
+        {"type": "message", "from": {"role": 0}, "text": "Conversation ID: abc", "timestamp": 5},
+    ]
+    bot = "kind: BotDefinition\ncomponents:\n  - kind: GptComponent\n    displayName: Contoso HR\n    instructions: |-\n      #Core identity\n      You are an HR agent.\n"
+    with tempfile.TemporaryDirectory() as d:
+        z = Path(d) / "snapshot.zip"
+        with zipfile.ZipFile(z, "w") as f:
+            f.writestr("dialog.json", json.dumps(acts))
+            f.writestr("botContent.yml", bot)
+        out = essdoctor_cli.main(["xray", str(z)])
+    diag = transcript.diagnose({"activities": acts})
+
+    assert out == 0
+    assert diag["question"] == "what is relocation benefit"
+    assert diag["response"] == "Relocation covers moving costs."
+    assert diag["stages"]["search"] == "ok"
+
+
 def test_devui_custom_engine_turn_is_not_reported_as_ungrounded():
     export = {
         "conversationId": "c-1",

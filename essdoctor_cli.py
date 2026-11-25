@@ -349,8 +349,31 @@ def cmd_draft(a) -> str:
     return "\n".join(md)
 
 
+def _snapshot(data: bytes) -> tuple[str, str] | None:
+    """(dialog activities JSON, botContent YAML) from a Copilot Studio test pane snapshot (.zip), or None."""
+    if not zipfile.is_zipfile(io.BytesIO(data)):
+        return None
+    with zipfile.ZipFile(io.BytesIO(data)) as z:
+        names = {Path(i.filename).name.lower(): i.filename for i in z.infolist() if not i.is_dir()}
+        dialog = next((names[n] for n in names if n.startswith("dialog") and n.endswith(".json")), None)
+        if not dialog:
+            return None
+        bot = next((names[n] for n in names if n.startswith("botcontent") and n.endswith((".yml", ".yaml"))), None)
+        return _text(z.read(dialog)), (_text(z.read(bot)) if bot else "")
+
+
 def cmd_xray(a) -> str:
     data = _read(a.evidence)
+    snap = _snapshot(data)
+    if snap:
+        from ess_maker.doctor import transcript
+
+        dialog, bot_yaml = snap
+        current = load_agent(a.instructions, "Current instructions") if a.instructions else (
+            _from_text(bot_yaml, "Instructions in the snapshot", "snapshot") if bot_yaml else None)
+        if not transcript.load(dialog):
+            raise InputError("The snapshot's dialog.json has no conversation activities.")
+        return "```text\n" + transcript.build(dialog, question=a.question, response=a.response, current=current, snapshot=True) + "\n```"
     text = _text(data).lstrip("\ufeff")
     current = load_agent(a.instructions, "Current instructions") if a.instructions else None
     stripped = text.lstrip()
