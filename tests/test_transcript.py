@@ -556,6 +556,7 @@ def test_agent_audit_finds_multi_agent_gaps():
                 assert essdoctor_cli.main(["audit", "hub.yml", "hr.yml"]) == 0
             md = out.getvalue()
             assert "### What to do next" in md and '**"fix Contoso Hub instructions"**' in md and "### Optional" in md
+            assert "### Topic check per agent" in md
             cmd = _re.search(r'essdoctor-next: "fix Contoso Hub instructions" = (.+?) -->', md).group(1)
             assert "--append" in cmd
             with contextlib.redirect_stdout(io.StringIO()):

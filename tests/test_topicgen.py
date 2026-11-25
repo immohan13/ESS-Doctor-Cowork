@@ -124,8 +124,8 @@ def test_topic_gen_command_writes_topic_config_skill_and_tests_and_plan_routes_t
         plan = io.StringIO()
         with contextlib.redirect_stdout(plan):
             assert essdoctor_cli.main(["plan", str(spec), str(Path(d) / "t" / "topic.yaml")]) == 0
-        assert "| topic-generator | `python3 scripts/essdoctor.py topic-gen" in plan.getvalue()
-        assert "| topic-generator | `python3 scripts/essdoctor.py topic-check" in plan.getvalue()
+        assert "| generate-workflows | `python3 scripts/essdoctor.py topic-gen" in plan.getvalue()
+        assert "| generate-workflows | `python3 scripts/essdoctor.py topic-check" in plan.getvalue()
 
 
 def test_shipped_text_keeps_its_symbols():

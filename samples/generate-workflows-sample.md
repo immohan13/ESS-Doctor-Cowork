@@ -147,4 +147,4 @@ Add a row to the **Employee Self Service Template Configuration** table with uni
 - `outputs/topic/evalset.csv`: 7 test questions (the trigger phrases, and what the topic must not handle). Import it in Copilot Studio: open the agent > **Evaluation** > **Create a test set** (or **New evaluation**) > upload the CSV, then run it before and after publishing the change.
 
 
-<!-- essdoctor: version=2.11.6 skill=topic-generator command=topic-gen -->
+<!-- essdoctor: version=2.12.1 skill=generate-workflows command=topic-gen -->

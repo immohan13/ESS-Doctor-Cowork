@@ -44,8 +44,8 @@ For each step, follow that skill's own `SKILL.md` (its Run, Respond and Rules se
 | Routing through a CSV or table in knowledge, sessions counted in child agents | `agent-audit` | `audit` |
 | "It ignores my banned phrases", "it asks odd clarifying questions", the agent reports its own steps | `instruction-check` | `check`, `fix` |
 | ServiceNow knowledge setup questions | `servicenow-setup` | `setup-servicenow` |
-| "Create / generate a topic", "add a Workday, ServiceNow or SuccessFactors scenario", "a topic that answers X from these sources", a topic spec | `topic-generator` | `topic-gen` (collect the spec first) |
-| A topic pasted from the code editor, "check my topics", a snapshot when the maker asks about topics | `topic-generator` | `topic-check` |
+| "Generate workflows", "create / generate a topic", "add a Workday, ServiceNow or SuccessFactors scenario", "a topic that answers X from these sources", a topic spec | `generate-workflows` | `topic-gen` (collect the spec first) |
+| A topic pasted from the code editor, "check my topics", a snapshot when the maker asks about topics | `generate-workflows` | `topic-check` |
 | "What does ESS Doctor check?", "list all rules / best practices" | this skill | `rules` (everything) or `practices` (authoring practices only); show the output as returned |
 
 Chain the skills the way their reports point, without waiting to be asked:

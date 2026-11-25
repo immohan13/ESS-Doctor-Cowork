@@ -1237,9 +1237,14 @@ def _agent_files(paths: list[str]) -> list[tuple[str, str]]:
 
 
 def cmd_audit(a) -> str:
-    from ess_maker.doctor import audit
+    from ess_maker.doctor import audit, topicgen
 
-    agents = [audit.parse(text, name) for name, text in _agent_files(a.agents)]
+    raw: dict[int, str] = {}
+    agents = []
+    for name, text in _agent_files(a.agents):
+        x = audit.parse(text, name)
+        raw[id(x)] = text
+        agents.append(x)
     agents = [x for x in agents if x.instructions or x.knowledge or x.topics or x.connected]
     if not agents:
         raise InputError("No agents found. Upload each agent's test pane snapshot (.zip) or its YAML (botContent.yml, "
@@ -1315,6 +1320,28 @@ def cmd_audit(a) -> str:
     else:
         md += ["✅ No instruction findings beyond the ESS template.", ""]
 
+    # Topics of full exports go through the same topic rules as generated workflows.
+    topic_checks = {id(x): topicgen.check(raw[id(x)]) for x in agents if x.full_export and id(x) in raw}
+    if topic_checks:
+        md += ["### Topic check per agent", ""]
+        for x in agents:
+            if id(x) not in topic_checks:
+                continue
+            fs, n = topic_checks[id(x)], len(topicgen._topics(raw[id(x)]))
+            if not fs:
+                md.append(f"- **{_cell(x.name)}** · ✅ all {n} topics pass the ESS topic rules.")
+                continue
+            sev = " · ".join(f"{_SEV[s]} {c} {s}" for s in ("high", "medium", "low")
+                             if (c := sum(1 for f in fs if f.severity == s)))
+            by_rule: dict[str, list[str]] = {}
+            for f in fs:
+                by_rule.setdefault(f.title, []).append(f.topic)
+            top = sorted(by_rule.items(), key=lambda kv: (min({"high": 0, "medium": 1, "low": 2}[f.severity]
+                                                                 for f in fs if f.title == kv[0]), -len(kv[1])))[:3]
+            md.append(f"- **{_cell(x.name)}** · {n} topics · {sev}: "
+                      + "; ".join(f"{_cell(t)} ({len(ts)})" for t, ts in top) + ".")
+        md.append("")
+
     notes = [g for g in gaps if g.severity == "info"]
     missing = [re.sub(r" wasn't uploaded$", "", g.title) for g in notes if g.rule_id == "A11-CHILD-NOT-PROVIDED"]
     partial = [x.name for x in agents if not x.full_export]
@@ -1350,11 +1377,17 @@ def cmd_audit(a) -> str:
             what += ", plus the delegation section"
         choices.append(f"- **\"fix {x.name} instructions\"**: {what}, fitted under 8,000 characters, with a test set.")
         hidden.append(f"<!-- essdoctor-next: \"fix {x.name} instructions\" = {cmd} -->")
+    for x in agents:
+        tf = topic_checks.get(id(x), [])
+        if any(f.severity in ("high", "medium") for f in tf) and x.file in src:
+            choices.append(f"- **\"check {x.name} topics\"**: every topic finding with its fix (generate workflows); "
+                           "any topic can then be regenerated the ESS way.")
+            hidden.append(f"<!-- essdoctor-next: \"check {x.name} topics\" = topic-check \"{src[x.file]}\" -->")
     studio = [i for i, g in enumerate(fixes, 1) if g.rule_id != "A16-HUB-DELEGATION-RULES"]
     if choices or studio:
         md += ["### What to do next", ""]
         if choices:
-            md += ["Reply with one of these to change the instructions:", ""] + choices + [""]
+            md += ["Reply with one of these:", ""] + choices + [""]
         if studio:
             md += [f"The other fixes ({', '.join(str(i) for i in studio[:12])}) are made in Copilot Studio, not in the "
                    "instructions. Paste the proposed descriptions as a starting point and add the subjects each covers.", ""]
@@ -1447,7 +1480,7 @@ def cmd_topic_check(a) -> str:
            for i, f in enumerate(fs[:60], 1)]
     if len(fs) > 60:
         md.append(f"| | …and {len(fs) - 60} more | | |")
-    md += ["", "To rebuild a topic the ESS way, describe the scenario and ESS Doctor generates it (topic generator)."]
+    md += ["", "To rebuild a topic the ESS way, describe the scenario and ESS Doctor generates it (generate workflows)."]
     return "\n".join(md)
 
 
@@ -1598,7 +1631,7 @@ def cmd_rules(a) -> str:
     from ess_maker.doctor.topicgen import TOPIC_RULES
 
     md += [f"### Topic rules ({len(TOPIC_RULES)})", "",
-           "The topic check (and every topic the topic generator writes) follows these:", ""]
+           "The topic check (and every topic that generate workflows writes) follows these:", ""]
     md += _grouped(TOPIC_RULES.values())
     md += [f"### Authoring practices ({len(practices.PRACTICES)})", ""]
     md += _grouped((_STAGE_NAME.get(p.stage, p.stage), p.title) for p in practices.PRACTICES)
@@ -1637,8 +1670,8 @@ def cmd_component_update(a) -> str:
 _SKILL_OF = {"check": "instruction-check", "fix": "instruction-check", "condense": "instruction-check",
              "draft": "instruction-draft", "xray": "conversation-xray", "sorry-triage": "sorry-triage",
              "eval-triage": "eval-triage", "eval-compare": "eval-triage", "audit": "agent-audit", "plan": "ess-doctor",
-             "rules": "ess-doctor", "practices": "ess-doctor", "topic-gen": "topic-generator",
-             "topic-check": "topic-generator"}
+             "rules": "ess-doctor", "practices": "ess-doctor", "topic-gen": "generate-workflows",
+             "topic-check": "generate-workflows"}
 
 
 def _identify(name: str, data: bytes) -> tuple[str, str, str]:
@@ -1715,8 +1748,8 @@ _PLAN = {
     "evalset": ("eval-triage", "", "Import it in Copilot Studio > Evaluation, run it, and upload the results CSV"),
     "agent": ("agent-audit", 'audit "{f}" [other agents]', "Gaps across hub and child agents"),
     "instructions": ("instruction-check", 'check "{f}"', "Findings, practices and proposed changes"),
-    "topic": ("topic-generator", 'topic-check "{f}"', "Checks the topic against the ESS topic rules"),
-    "topicspec": ("topic-generator", 'topic-gen "{f}"', "Generates the topic, template configuration, skill and tests"),
+    "topic": ("generate-workflows", 'topic-check "{f}"', "Checks the topic against the ESS topic rules"),
+    "topicspec": ("generate-workflows", 'topic-gen "{f}"', "Generates the topic, template configuration, skill and tests"),
 }
 
 

@@ -9,7 +9,7 @@ Example outputs from the ESS Doctor Cowork plugin, generated from **synthetic Co
 | [devui-xray-sample.md](devui-xray-sample.md) | A DevUI conversation export | The full investigation: the instructions that ran, every model call, the search funnel (found → admitted → kept), safety classifiers, the instruction lines behind the failure and numbered fixes |
 | [sorry-triage-sample.md](sorry-triage-sample.md) | Several cards and exports where the agent said sorry | Causes of the sorry answers biggest first, who fixes each, the instruction rules behind the maker-owned ones, and every sorry turn with its evidence |
 | [instruction-check-sample.md](instruction-check-sample.md) | The agent instructions | Findings by severity with line numbers, what employees see and the fix; ESS core blocks; authoring practices |
-| [topic-generator-sample.md](topic-generator-sample.md) | A short scenario spec ([inputs/topic_spec_contoso.json](inputs/topic_spec_contoso.json)) | A Workday topic ready to paste into the code editor, its ESS template configuration, what to check before importing, and the generated skill and test files |
+| [generate-workflows-sample.md](generate-workflows-sample.md) | A short scenario spec ([inputs/topic_spec_contoso.json](inputs/topic_spec_contoso.json)) | A Workday topic ready to paste into the code editor, its ESS template configuration, what to check before importing, and the generated skill and test files |
 
 The inputs are in [inputs/](inputs/). Regenerate the samples after an engine change with the commands in [../README.md](../README.md).
 

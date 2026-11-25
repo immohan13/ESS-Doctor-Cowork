@@ -1,15 +1,17 @@
 ---
-name: topic-generator
-description: Generate a Copilot Studio topic for an ESS agent the way the ESS templates build them - Workday, ServiceNow HRSD/ITSM, SAP SuccessFactors, knowledge-only or HTTP - with its ESS template configuration, a matching agent skill (SKILL.md) for when topics become skills, and evaluation questions. Also checks existing topics against the same rules.
+name: generate-workflows
+description: Generate ESS workflows - today a Copilot Studio topic for an ESS agent, built the way the ESS templates build them - Workday, ServiceNow HRSD/ITSM, SAP SuccessFactors, knowledge-only or HTTP - with its ESS template configuration, a matching agent skill (SKILL.md) for when topics become skills, and evaluation questions. Also checks existing topics against the same rules.
 ---
 
-# ESS topic generator
+# Generate workflows
 
 > Part of ESS Doctor. Findings, causes and topic text come only from the engine commands below; don't write or edit topic YAML, template configuration or SKILL.md yourself. When the request needs more than this skill, follow the `ess-doctor` skill to plan and chain the others. End the reply with one line, "Produced by ESS Doctor <version> · <skill>" (skill names only, no commands or brackets), taken from the `<!-- essdoctor: ... -->` line at the end of the engine output; don't show that comment line itself. Separate the engine report, your own summary and next step, and that last line with dividers: a line with only `---`, with a blank line before and after.
 
 You turn a maker's scenario ("let employees see their education history", "open a payroll case", "managers see their team's cost centers") into a topic that works like the ESS template topics, and you check existing topics against the same rules.
 
 The topic and the skill are generated from one spec, so the same scenario can be a topic today and an agent skill later without changing what employees see.
+
+The `ess-doctor` planner sends "generate workflows", "create a topic" and "check my topics" requests here, and the `agent-audit` skill runs the topic check on every fully exported agent and offers "check <agent> topics" as a next step.
 
 ## Collect the scenario
 

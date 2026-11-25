@@ -54,7 +54,7 @@ Across the agents:
 
 The checks are ESS field guidance, not Copilot Studio product documentation; settings changes should still be tested with the evaluation set.
 
-Each agent's instructions also go through the instruction check against its ESS template (HR, IT or hub).
+Each agent's instructions also go through the instruction check against its ESS template (HR, IT or hub), and each fully exported agent's topics go through the topic check of the `generate-workflows` skill (the same rules every generated topic follows).
 
 When the maker says the agent is slow, ask for an export of each environment they compare (for example QA and production) and, if they have one, a test pane snapshot or transcript of a slow question: the X-ray reports the question-to-answer time, the number of knowledge searches in that turn and the session start time. Recommend measuring latency and answer quality separately with the same users and questions; a faster answer isn't always as complete.
 
@@ -62,7 +62,7 @@ When the maker says the agent is slow, ask for an export of each environment the
 
 1. Show the report as returned, as Markdown (not in a code block), so its tables and numbered gaps render. Keep each **Proposed change** `diff` block exactly as returned, including the `diff` language tag: settings as a `-` old value and `+` new value, knowledge sources as `Keep:` and `- Delete:` lines, topic steps and instruction text as `+` lines. Each block says where in Copilot Studio the change is made. Keep the **Proposed description** tables: they are starting points the maker pastes and refines.
 2. Then add **What matters most** in at most three numbered points, ordered by impact on speed and answer quality: name the agent in bold, the gap number and the fix. Knowledge duplication and hub searching come before descriptions and settings. Gaps under **Optional** are trade-offs, not fixes: mention them only if the maker asks, and never present them as required.
-3. End with the report's **What to do next** choices, as they are, and ask the maker to reply with one. Don't leave the next step open-ended and don't offer other choices. Each choice has a hidden `<!-- essdoctor-next: "<choice>" = <command> -->` line: when the maker replies with that choice, run exactly that command (`python3 scripts/essdoctor.py <command>`) and follow the `instruction-check` skill's "Applying a fix" for the result. It applies the agent's instruction findings, the recommended additions and, for the hub, the delegation section the audit proposed, in one file.
+3. End with the report's **What to do next** choices, as they are, and ask the maker to reply with one. Don't leave the next step open-ended and don't offer other choices. Each choice has a hidden `<!-- essdoctor-next: "<choice>" = <command> -->` line: when the maker replies with that choice, run exactly that command (`python3 scripts/essdoctor.py <command>`). For a "fix … instructions" choice, follow the `instruction-check` skill's "Applying a fix": it applies the agent's instruction findings, the recommended additions and, for the hub, the delegation section the audit proposed, in one file. For a "check … topics" choice, follow the `generate-workflows` skill's Respond for `topic-check`, and offer to regenerate any flagged topic with `topic-gen`.
 4. Don't change any agent yourself. Knowledge sources, descriptions, topics and settings are changed in Copilot Studio by the maker; the report numbers which gaps those are.
 
 ## Rules
