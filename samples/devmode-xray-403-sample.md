@@ -1,7 +1,7 @@
 ```text
 Conversation Investigation (developer mode card) — 11111111-2222-3333-4444-555555555555
 Source: Microsoft 365 Copilot developer mode debug card
-Generated: 2026-11-24 21:16 UTC
+Generated: 2026-11-25 18:14 UTC
 
 ==============================================================
 USER QUESTION
@@ -71,7 +71,7 @@ RECOMMENDED NEXT STEPS
 1. In ServiceNow, check the REST API access policies for this API. If a policy limits it to specific OAuth scopes, the OAuth application needs a custom OAuth scope that the policy allows, and the connection must request that scope.
 2. Check the signed-in user has the ServiceNow roles this API needs.
 3. Run the same request as the same user outside Copilot to confirm it's a backend permission and not the agent.
-4. For the instructions that ran, every model call and the search funnel, export the same conversation from DevUI.
+4. If Microsoft support is helping you, a DevUI export of the same conversation adds the instructions that ran, the search queries, every model call and the safety checks.
 
 ==============================================================
 WHAT THIS CARD CAN'T SEE

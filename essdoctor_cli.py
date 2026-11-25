@@ -19,7 +19,7 @@ from ess_maker.doctor.agent_file import AgentDoc, from_instructions, parse_text
 from ess_maker.doctor.blocks import diff_docs
 from ess_maker.doctor.condense import condense, studio_len
 from ess_maker.doctor.drafter import CHANGE_TYPES, Intake, draft
-from ess_maker.doctor.fixes import LENGTH_TARGET, fix
+from ess_maker.doctor.fixes import LENGTH_RULES, LENGTH_TARGET, fix
 from ess_maker.doctor.rules import CORE_BLOCKS, DA_INSTRUCTION_LIMIT, core_presence, validate
 
 TEMPLATE_MODERATION = {"hr": "Medium", "it": "Medium", "hub": "High"}
@@ -208,14 +208,15 @@ def _diff_md(diff: dict, limit: int = 80, per_block: int = 12) -> str:
             continue
         hunks = r.get("hunks") or []
         first = next((h.get("line") for h in hunks if h.get("line")), None)
-        out.append(f"**{_DIFF_STATUS.get(r['status'], r['status'])}: {_cell(re.sub(r'\s*\(.*$', '', r['title']).strip())}**"
+        title = re.sub(r'\s*\(.*$', '', r['title']).strip() or "Text before the first heading"
+        out.append(f"**{_DIFF_STATUS.get(r['status'], r['status'])}: {_cell(title)}**"
                    + (f" (line {first})" if first else ""))
         out += ["", "```diff"]
         for h in hunks[:per_block]:
             if n >= limit:
                 break
             text = (h.get("text") or "").rstrip().replace("```", "'''")
-            out.append(f"{'+' if h.get('op') == '+' else '-'} {text[:400]}")
+            out.append(f"{'+' if h.get('op') == '+' else '-'} {text if len(text) <= 1500 else text[:1500] + '…'}")
             n += 1
         if len(hunks) > per_block:
             out.append(f"@@ {len(hunks) - per_block} more changed line(s) @@")
@@ -227,6 +228,56 @@ def _diff_md(diff: dict, limit: int = 80, per_block: int = 12) -> str:
     if diff.get("char_delta"):
         out.append(f"Length changed by {diff['char_delta']:+,} characters.")
     return "\n".join(out).rstrip() if out else "No section changed."
+
+
+def _diff_block(lines: list[str]) -> list[str]:
+    """A ```diff block from lines already starting with '-' or '+'."""
+    return ["```diff"] + [ln.replace("```", "'''") for ln in lines] + ["```"]
+
+
+def _indent(text: str, pad: str = "   ") -> list[str]:
+    return [pad + ln if ln else "" for ln in text.splitlines()]
+
+
+def _rule_diff(doc: AgentDoc, base, rule_id: str, per_block: int = 8) -> str:
+    """The diff the auto-fix would make for one rule or practice, or '' when it can't be applied automatically."""
+    try:
+        r = fix(doc, base, [rule_id])
+    except Exception:  # noqa: BLE001 - a proposal is optional; the prose fix still shows
+        return ""
+    if not r["applied"] or not any(b["status"] != "unchanged" for b in r["diff"].get("blocks") or []):
+        return ""
+    return _diff_md({**r["diff"], "char_delta": 0, "moderation_changed": False}, per_block=per_block)
+
+
+_RULE_ID = re.compile(r"\b((?:L\d+|BP)-[A-Z0-9]+(?:-[A-Z0-9]+)*)\b")
+
+
+def _proposed(doc: AgentDoc | None, base, report: str) -> list[str]:
+    """'Proposed instruction changes' as diff blocks for the rules a diagnosis report cites."""
+    if not doc or not doc.instruction_text.strip():
+        return []
+    ids = [i for i in dict.fromkeys(_RULE_ID.findall(report)) if i not in LENGTH_RULES]
+    # Reports that cite findings by title (developer mode, DevUI) rather than by rule ID.
+    flat = re.sub(r"\s+", " ", report)
+    try:
+        ids += [f.rule_id for f in validate(doc, base) if f.origin == "maker" and f.rule_id not in LENGTH_RULES
+                and f.rule_id not in ids and f.title and f.title[:60] in flat]
+    except Exception:  # noqa: BLE001
+        pass
+    ids = list(dict.fromkeys(ids))
+    if not ids:
+        return []
+    try:
+        r = fix(doc, base, ids)
+    except Exception:  # noqa: BLE001
+        return []
+    if not r["applied"]:
+        return []
+    return ["### Proposed instruction changes", "",
+            f"ESS Doctor can apply {len(r['applied'])} of these automatically "
+            f"({', '.join(dict.fromkeys(x['rule_id'] for x in r['applied']))}). Ask it to run the fix, or copy the "
+            "green lines into Copilot Studio > Overview > Instructions.", "", _diff_md(r["diff"])]
 
 
 # --- Commands ---------------------------------------------------------------------------------------------
@@ -277,12 +328,20 @@ def cmd_check(a) -> str:
         order = {"high": 0, "medium": 1, "low": 2, "info": 3}
         ordered = sorted(findings, key=lambda f: (order.get(f["severity"], 9), f["origin"] == "template"))
         md += ["### Fix first", ""]
+        shown: set[str] = set()
         for i, f in enumerate(ordered, 1):
             origin = " · also in the ESS template" if f["origin"] == "template" else ""
             md += [f"{i}. {_SEV.get(f['severity'], '')} **{_cell(f['title'])}**  ",
                    f"   Line {_lines(f)} · `{f['rule_id']}` · {f['severity']}{origin}",
                    f"   - **Employees see:** {_cell(f['user_sees'])}",
                    f"   - **Fix:** {_cell(f['fix'])}", ""]
+            if f["origin"] != "template" and f["auto_fixable"] and f["rule_id"] not in shown:
+                shown.add(f["rule_id"])
+                d = "" if f["rule_id"] in LENGTH_RULES else _rule_diff(doc, base, f["rule_id"])
+                if d:
+                    md += ["   **Proposed change:**", ""] + _indent(d) + [""]
+                elif f["rule_id"] in LENGTH_RULES:
+                    md += ["   Ask ESS Doctor to shorten the instructions for the line-by-line changes.", ""]
         tests = sorted({p for f in findings if f["origin"] != "template" for p in f.get("test_prompts") or []})
         if tests:
             md += ["### Test after fixing", ""] + [f"- {t}" for t in tests[:12]] + [""]
@@ -303,11 +362,14 @@ def cmd_check(a) -> str:
     for title, rows in (("Gaps in your instructions", own),
                         ("Also missing from the ESS template (lower priority)", shared)):
         if rows:
-            md += [f"**{title}**", "", "| Practice | Add under | Text to add |", "| --- | --- | --- |"]
+            md += [f"**{title}**", ""]
             for d in rows:
                 where, text = _practice_fix(d["fix"])
-                md.append(f"| {d['rule_id'][3:]} {_cell(d['title'].replace('Not following: ', ''))} | {where} | {_cell(text)} |")
-            md.append("")
+                md.append(f"- **{d['rule_id'][3:]} {_cell(d['title'].replace('Not following: ', ''))}**"
+                          + (f": add under *{where}*" if where else ""))
+                change = _rule_diff(doc, base, d["rule_id"]) if title.startswith("Gaps") else ""
+                block = change or "\n".join(_diff_block([f"+ {ln}" for ln in text.splitlines() if ln.strip()] or ["+ " + text]))
+                md += [""] + _indent(block, "  ") + [""]
     if a.json:
         _write(a.json, json.dumps({"persona": persona, "findings": findings, "practices": card,
                                    "chars": {"raw": raw, "studio": studio, "limit": DA_INSTRUCTION_LIMIT}}, indent=2, default=list))
@@ -353,6 +415,9 @@ def cmd_condense(a) -> str:
         md += ["### Abilities kept", "", ", ".join(f"{k}: {v}" for k, v in r["abilities_kept"].items()), ""]
     if not r["reached"] and r["candidates"]:
         md += ["### Candidates to cut or move into topics or knowledge", ""] + [f"- {_cell(x if isinstance(x, str) else json.dumps(x))[:300]}" for x in r["candidates"]] + [""]
+    if r["new_text"] != doc.instruction_text:
+        md += ["### What changed", "", _diff_md(diff_docs(from_instructions(doc.instruction_text, doc.name, "current"),
+                                                          from_instructions(r["new_text"], doc.name + " (shortened)"))), ""]
     md += _evalset(a, [], a.out)
     return "\n".join(md)
 
@@ -536,6 +601,17 @@ def cmd_logs_query(a) -> str:
 
 
 def cmd_xray(a) -> str:
+    ctx: dict = {}
+    report = _xray(a, ctx)
+    doc = ctx.get("doc")
+    if not doc:
+        return report
+    base = ctx.get("base") or baseline(_persona(getattr(a, "persona", None) or "auto", doc))
+    proposed = _proposed(doc, base, report)
+    return report + ("\n\n" + "\n".join(proposed) if proposed else "")
+
+
+def _xray(a, ctx: dict) -> str:
     data = _read(a.evidence)
     snap = _snapshot(data)
     if snap:
@@ -544,12 +620,14 @@ def cmd_xray(a) -> str:
         dialog, bot_yaml = snap
         current = load_agent(a.instructions, "Current instructions") if a.instructions else (
             _from_text(bot_yaml, "Instructions in the snapshot", "snapshot") if bot_yaml else None)
+        ctx["doc"] = current
         if not transcript.load(dialog):
             raise InputError("The snapshot's dialog.json has no conversation activities.")
         return "```text\n" + transcript.build(dialog, question=a.question, response=a.response, current=current, snapshot=True,
                                              bot_yaml=bot_yaml) + "\n```"
     text = _text(data).lstrip("\ufeff")
     current = load_agent(a.instructions, "Current instructions") if a.instructions else None
+    ctx["doc"] = current
     from ess_maker.doctor import appinsights
 
     if appinsights.is_export(text):
@@ -592,6 +670,7 @@ def cmd_xray(a) -> str:
             served = from_instructions(t["instructions"], "Instructions that ran (DevUI)", "devui") if t["instructions"] else None
             basis = served or current
             findings = validate(basis, baseline(guess_persona(current or basis))) if basis else []
+            ctx.update(doc=basis, base=baseline(guess_persona(current or basis)) if basis else None)
             head = ""
             if len(turns) > 1:
                 head = "Turns in this export: " + "; ".join(f"{i + 1}. {x['question'][:80]}" for i, x in enumerate(turns)) + \
@@ -722,6 +801,10 @@ def cmd_sorry(a) -> str:
                     if snapshot_instructions else "")
     cea = any(kind in ("transcript", "session") for kind, _, _ in sources)
     md = sorry.build(sorry.triage(sources, instructions, cea=cea))
+    if instructions:
+        doc = from_instructions(instructions, "Current instructions", "sorry")
+        proposed = _proposed(doc, baseline(_persona(getattr(a, "persona", None) or "auto", doc)), md)
+        md += "\n\n" + "\n".join(proposed) if proposed else ""
     if skipped:
         md += "\n\nSkipped (not recognised as conversation evidence): " + ", ".join(skipped[:20])
     return md
@@ -818,6 +901,8 @@ def cmd_audit(a) -> str:
                f"   {', '.join(_cell(n) for n in g.agents)} · `{g.rule_id}` · {g.severity}",
                f"   - **Why it matters:** {_cell(g.detail)}",
                f"   - **Fix:** {_cell(g.fix)}", ""]
+        if g.change:
+            md += ["   **Proposed change:**", ""] + _indent("\n".join(_diff_block(g.change))) + [""]
 
     rows = [(x, checks[id(x)]) for x in agents if checks.get(id(x))]
     md += ["### Instruction check per agent", ""]
@@ -868,11 +953,11 @@ def _clip(s: str, n: int) -> str:
 def _triage_report(r: dict) -> str:
     items, req = r.get("items") or [], r.get("required") or []
     total, passed, failed = r["total"], r["passed"], r["failed"]
-    md = ["## Evaluation triage", "", f"**{passed} of {total} passed** Â· âœ… {passed} passed Â· âŒ {failed} failed", ""]
+    md = ["## Evaluation triage", "", f"**{passed} of {total} passed** · ✅ {passed} passed · ❌ {failed} failed", ""]
 
     for q in req:
         if q["missing"]:
-            md += [f"> âš ï¸ **A required line is missing from {q['missing']} of {q['of']} responses"
+            md += [f"> ⚠️ **A required line is missing from {q['missing']} of {q['of']} responses"
                    + (f", including {q['missing_in_passes']} that passed" if q["missing_in_passes"] else "") + ".**",
                    f"> Instruction line {q['line']} asks every response to include: *\"{_cell(q['text'])}\"*",
                    "> The grader only judged answer quality, so passing questions don't show this. "
@@ -894,7 +979,7 @@ def _triage_report(r: dict) -> str:
     for i, x in enumerate(items, 1):
         what = _clip(x.get("headline"), 240)
         if x.get("secondary"):
-            what += "<br>âš ï¸ " + _clip(x["secondary"], 240)
+            what += "<br>⚠️ " + _clip(x["secondary"], 240)
         md.append(f"| {i} | **{_clip(x.get('question'), 160)}** | {what} | {_clip(x.get('fix'), 320)} |")
 
     flagged = [x for x in items if x.get("secondary") and x.get("lines")]

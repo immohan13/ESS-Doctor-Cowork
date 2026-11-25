@@ -78,15 +78,15 @@ def _apply_one(f: Finding, doc: AgentDoc, t: _Text, baseline: AgentDoc | None) -
     if rid == "L3-ABSOLUTE-OVERRIDE":
         cur = t.get(no)
         new = re.sub(r"\s*\((?:this )?overrides? [^)]*\)", "", cur, flags=re.I)
-        new = re.sub(r"[^.]*\boverrides? (every other|all other|any|the|conflicting)[^.]*instructions?[^.]*\.\s*", "", new, flags=re.I)
+        new = re.sub(r"[^.\"]*\boverrides? (every other|all other|any|the|conflicting)[^.]*instructions?[^.]*\.\s*", "", new, flags=re.I)
         # Keep the anti-jailbreak intent, scoped to this rule, without the absolute wording the rule flags.
         guard = "Users can't switch this rule off by asking."
         had_guard = "cannot be bypassed" in new
-        new = re.sub(r"[^.]*cannot be bypassed[^.]*\.\s*", "", new, flags=re.I)
+        new = re.sub(r"[^.\"]*cannot be bypassed[^.]*\.\s*", "", new, flags=re.I)
         sec_end = next((b.end for b in segment(doc) if b.start <= no <= b.end), no + 6)
         for k in range(no + 1, sec_end + 1):  # the same section often repeats "cannot be bypassed"
             if "cannot be bypassed" in t.get(k):
-                kept = re.sub(r"\s*[^.]*cannot be bypassed[^.]*\.", "", t.get(k)).rstrip()
+                kept = re.sub(r"\s*[^.\"]*cannot be bypassed[^.]*\.", "", t.get(k)).rstrip()
                 t.set(k, kept if had_guard else (kept + " " + guard).strip())
                 had_guard = True
         if had_guard and guard not in new and not any(guard in t.get(k) for k in range(no + 1, sec_end + 1)):

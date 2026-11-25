@@ -220,6 +220,8 @@ class Gap:
     detail: str
     fix: str
     owner: str = "Agent maker"
+    # Concrete change as diff lines ("- old", "+ new") for settings, knowledge sources or instruction text.
+    change: list[str] = field(default_factory=list)
 
 
 def _child_for(hub: Agent, target: Connected | str, agents: list[Agent]) -> Agent | None:
@@ -227,6 +229,15 @@ def _child_for(hub: Agent, target: Connected | str, agents: list[Agent]) -> Agen
     want |= {w.replace("employeeselfservice", "ess") for w in want}
     want.discard("")
     return next((x for x in agents if x is not hub and x.keys() & want), None)
+
+
+def _setting(name: str, old: str, new: str) -> list[str]:
+    return [f"- {name}: {old}", f"+ {name}: {new}"]
+
+
+def _removals(items, limit: int = 12) -> list[str]:
+    items = list(items)
+    return [f"- {x}" for x in items[:limit]] + ([f"@@ {len(items) - limit} more @@"] if len(items) > limit else [])
 
 
 def _jaccard(a: str, b: str) -> float:
@@ -260,7 +271,8 @@ def audit(agents: list[Agent]) -> dict:
                         "Generative orchestration can search them on every turn before it routes, adding a full search "
                         "round to each request, and the answer can come from the hub instead of the child.",
                         "Keep the hub a router: move the knowledge into the child agent that owns the domain, and route "
-                        "by intent with the connected agents' descriptions."))
+                        "by intent with the connected agents' descriptions.",
+                        change=_removals(f"{hub.name} knowledge source: {k.name}" for k in hub.knowledge)))
 
     # Same knowledge in the hub and a child, or in two children.
     owners: dict[str, list[str]] = {}
@@ -277,7 +289,8 @@ def audit(agents: list[Agent]) -> dict:
             gaps.append(Gap("A02-DUP-KNOWLEDGE-HUB-CHILD", "high", names, "The hub and a child search the same knowledge",
                             f"{label} is a knowledge source of {' and '.join(names)}. Both search it, so the model reads "
                             "the same content twice and the request waits for both.",
-                            "Remove it from the hub and keep it only in the child that owns the domain."))
+                            "Remove it from the hub and keep it only in the child that owns the domain.",
+                            change=_removals(f"{hub.name} knowledge source: {k.name}" for k in hub.knowledge if k.target == target)))
         else:
             gaps.append(Gap("A03-DUP-KNOWLEDGE-CHILDREN", "medium", names, "Two child agents search the same knowledge",
                             f"{label} is a knowledge source of {' and '.join(names)}. Overlapping knowledge makes the hub's "
@@ -297,7 +310,8 @@ def audit(agents: list[Agent]) -> dict:
                                 f"The same {kind} is added twice",
                                 f"{', '.join(names)} point to the same {kind} ({target.replace('connector:', '')}). Each is "
                                 "searched separately, so the same results come back twice and double the content the model "
-                                "reads.", "Keep one knowledge source per connector or site and delete the copies."))
+                                "reads.", "Keep one knowledge source per connector or site and delete the copies.",
+                                change=_removals(f"{a.name} knowledge source: {n}" for n in names[1:])))
         # Site root plus pages under it.
         sites = [k for k in a.knowledge if k.target.startswith("http")]
         roots = {k.target for k in sites if re.fullmatch(r"https://[^/]+/sites/[^/]+", k.target)}
@@ -307,7 +321,8 @@ def audit(agents: list[Agent]) -> dict:
                 gaps.append(Gap("A05-OVERLAPPING-KNOWLEDGE", "medium", [a.name], "A whole site and pages inside it are both added",
                                 f"{root} is a knowledge source, and so are {len(under)} page(s) inside it "
                                 f"({', '.join(under[:3])}{'…' if len(under) > 3 else ''}). The pages are searched twice.",
-                                "Keep the site and delete the page-level sources, or keep the pages and remove the site."))
+                                "Keep the site and delete the page-level sources, or keep the pages and remove the site.",
+                                change=_removals(f"{a.name} knowledge source: {n}" for n in under)))
         # Many sources: filtered by description.
         active = [k for k in a.knowledge if k.active]
         generic = [k for k in active if not k.description.strip() or _GENERIC_KS.match(k.description.strip())]
@@ -341,10 +356,12 @@ def audit(agents: list[Agent]) -> dict:
         if a.settings.get("useModelKnowledge"):
             gaps.append(Gap("A09-MODEL-KNOWLEDGE", "high", [a.name], "General model knowledge is on",
                             "The agent can answer from the model's general knowledge instead of the company's sources.",
-                            "Turn off \"Use general knowledge\" in the agent's generative AI settings."))
+                            "Turn off \"Use general knowledge\" in the agent's generative AI settings.",
+                            change=_setting(f"{a.name} > Use general knowledge", "On", "Off")))
         if a.web_browsing:
             gaps.append(Gap("A10-WEB-SEARCH", "high", [a.name], "Web search is on",
-                            "Public web results can be mixed into HR or IT answers.", "Turn off web search for ESS agents."))
+                            "Public web results can be mixed into HR or IT answers.", "Turn off web search for ESS agents.",
+                            change=_setting(f"{a.name} > Web search", "On", "Off")))
 
     if hub:
         # Connected agents: missing, not connectable, history, descriptions.
@@ -356,7 +373,8 @@ def audit(agents: list[Agent]) -> dict:
             elif kid.connectable is False:
                 gaps.append(Gap("A12-CHILD-NOT-CONNECTABLE", "high", [hub.name, kid.name], f"{kid.name} can't be called by other agents",
                                 "Its \"Let other agents connect to and use this one\" setting is off, so the hub's hand-off fails.",
-                                "Turn on the setting in the child agent and publish it."))
+                                "Turn on the setting in the child agent and publish it.",
+                                change=_setting(f"{kid.name} > Let other agents connect to and use this one", "Off", "On")))
         with_history = [c for c in hub.connected if c.active and c.history.lower() == "conversationhistory"]
         if with_history:
             gaps.append(Gap("A13-HISTORY-TO-EVERY-CHILD", "medium", [hub.name],
@@ -365,7 +383,9 @@ def audit(agents: list[Agent]) -> dict:
                             + ". Each child gets the whole conversation, so it reads more and can act on requests the hub "
                             "already handled, which causes duplicate or repeated answers.",
                             "Turn the setting off for children that only need the current task, and have the hub pass the "
-                            "employee's question verbatim as the task."))
+                            "employee's question verbatim as the task.",
+                            change=[ln for c in with_history
+                                    for ln in _setting(f"{hub.name} > {c.name} > Pass conversation history to this agent", "On", "Off")]))
         descs = [(c.name, c.description) for c in hub.connected if c.active and c.description]
         if not descs:
             # No connected-agent definitions in the export: the hub sees each child's own description by default.
@@ -395,7 +415,8 @@ def audit(agents: list[Agent]) -> dict:
         if missing:
             gaps.append(Gap("A16-HUB-DELEGATION-RULES", "medium", [hub.name], "Hub instructions miss delegation rules",
                             "The hub instructions don't say to " + "; or to ".join(missing) + ".",
-                            "Add a short delegation section: " + " ".join(f"- {m[:1].upper() + m[1:]}." for m in missing)))
+                            "Add a short delegation section: " + " ".join(f"- {m[:1].upper() + m[1:]}." for m in missing),
+                            change=["+ # Delegation"] + [f"+ - {m[:1].upper() + m[1:]}." for m in missing]))
 
     # Settings drift from the ESS templates and between hub and children.
     for a in agents:
@@ -405,7 +426,8 @@ def audit(agents: list[Agent]) -> dict:
             gaps.append(Gap("A17-MODERATION-BELOW-TEMPLATE", "medium", [a.name], f"Content moderation is {lvl}",
                             f"The ESS {a.persona.upper()} template uses {want}. A lower level lets more sensitive content "
                             "through; a mix of levels across agents makes safety behavior depend on which agent answers.",
-                            f"Set content moderation back to {want}, unless a reviewed exception applies."))
+                            f"Set content moderation back to {want}, unless a reviewed exception applies.",
+                            change=_setting(f"{a.name} > Content moderation", lvl, want)))
     if hub and kids:
         opt = {a.name: a.settings.get("optInUseLatestModels") for a in [hub] + kids if "optInUseLatestModels" in a.settings}
         if len(set(opt.values())) > 1:

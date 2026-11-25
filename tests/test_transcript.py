@@ -384,7 +384,9 @@ def test_check_report_orders_findings_and_splits_practice_gaps():
     assert report.index("### Fix first") < report.index("### ESS core blocks") < report.index("### Authoring practices")
     first = report.split("### Fix first", 1)[1].split("\n2. ", 1)[0]
     assert "🔴" in first and "**Employees see:**" in first and "**Fix:**" in first
-    assert "| Practice | Add under | Text to add |" in report
+    assert "**Proposed change:**" in report
+    practices_part = report.split("### Authoring practices", 1)[1]
+    assert "```diff\n" in practices_part and "\n  + " in practices_part
     assert "Copilot Studio count" in report
 
 
@@ -523,6 +525,10 @@ def test_agent_audit_finds_multi_agent_gaps():
             "A12-CHILD-NOT-CONNECTABLE", "A13-HISTORY-TO-EVERY-CHILD", "A14-CHILD-DESCRIPTION-VAGUE",
             "A16-HUB-DELEGATION-RULES", "A17-MODERATION-BELOW-TEMPLATE", "A18-MODEL-SETTINGS-DIFFER"} <= ids
     assert "A06-KNOWLEDGE-OVER-25" not in ids
+    change = {g.rule_id: g.change for g in r["gaps"]}
+    assert change["A17-MODERATION-BELOW-TEMPLATE"][0].startswith("- ") and change["A17-MODERATION-BELOW-TEMPLATE"][1].startswith("+ ")
+    assert change["A16-HUB-DELEGATION-RULES"][0] == "+ # Delegation"
+    assert all(ln.startswith("- ") for ln in change["A04-DUP-KNOWLEDGE-IN-AGENT"])
 
 
 def test_agent_audit_reads_alm_exports_with_config_values():

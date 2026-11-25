@@ -1,7 +1,7 @@
 ```text
 Conversation Investigation (developer mode card) — conversation ID not shown
 Source: Microsoft 365 Copilot developer mode debug card, agent instructions
-Generated: 2026-11-24 21:16 UTC
+Generated: 2026-11-25 18:14 UTC
 
 ==============================================================
 USER QUESTION
@@ -54,6 +54,7 @@ No function execution details were returned.
 3 SYNTHESIS & SAFETY
 ==============================================================
 The card doesn't show safety classifiers or how the answer was written. The answer you added was checked for abstain wording.
+Why this stage is marked: the answer declined or said it found nothing. It said: "I couldn't find any information about that." If the search returned relevant documents, an instruction or content moderation stopped the answer.
 
 ==============================================================
 INSTRUCTION LINES LIKELY RESPONSIBLE
@@ -66,7 +67,7 @@ RECOMMENDED NEXT STEPS
 1. Rewrite the description of the topic or action that should handle this so it uses the words users ask with (for example “How many vacation days do I have left?”).
 2. Check the instructions don't steer this kind of question away from tools.
 3. If this used to work, ask again later: 'No functions selected' after earlier success can mean throttling.
-4. For the instructions that ran, every model call and the search funnel, export the same conversation from DevUI.
+4. If Microsoft support is helping you, a DevUI export of the same conversation adds the instructions that ran, the search queries, every model call and the safety checks.
 
 ==============================================================
 WHAT THIS CARD CAN'T SEE

@@ -42,7 +42,7 @@ python3 scripts/essdoctor.py sorry-triage inputs/appinsights.csv                
 
 ## Respond
 
-1. Show the report as returned: causes biggest first, the maker-owned share, the instruction rules behind them, every sorry turn, and next steps.
+1. Show the report as returned: causes biggest first, the maker-owned share, the instruction rules behind them, every sorry turn, next steps and, when the instructions were provided, **Proposed instruction changes**. Keep each `diff` block exactly as returned (removed lines `-` in red, added lines `+` in green, with the `diff` language tag) so the colors render.
 2. Summarize in 3–5 sentences: the share of sorries the maker can fix in instructions, the top cause, and the top rule to fix first.
 3. Offer the next actions:
    - Fix the instruction rules with the `instruction-check` skill (`fix`, then `check`).

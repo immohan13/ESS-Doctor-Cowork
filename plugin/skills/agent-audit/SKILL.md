@@ -45,11 +45,11 @@ Each agent's instructions also go through the instruction check against its ESS 
 
 ## Respond
 
-1. Show the report as returned, as Markdown (not in a code block), so its tables and numbered gaps render.
+1. Show the report as returned, as Markdown (not in a code block), so its tables and numbered gaps render. Gaps with a concrete change have a **Proposed change** `diff` block: settings as a `-` old value and `+` new value, knowledge sources to delete as `-` lines, and instruction text to add as `+` lines. Keep those blocks exactly as returned, including the `diff` language tag, so removed lines show in red and added lines in green.
 2. Then add **What matters most** in at most three numbered points, ordered by impact on speed and answer quality: name the agent, the gap and the fix. Knowledge duplication and hub searching come before descriptions and settings.
 3. Then one **Next step** line offering to:
    - run `instruction-check` (with `fix`) on the agent with the most instruction findings;
-   - write the hub's delegation section or the child descriptions as text the maker can paste (draft them, then run `check` on the hub instructions with the new section);
+   - write the hub's delegation section or the child descriptions as text the maker can paste (draft them, show them as a `diff` block with `+` lines, then run `check` on the hub instructions with the new section);
    - list the knowledge sources to remove or merge, one line each.
 4. Don't change any agent yourself. Knowledge sources, descriptions and the "Pass conversation history to this agent" setting are changed in Copilot Studio by the maker.
 
