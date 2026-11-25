@@ -1,7 +1,7 @@
 """Copilot Studio conversation transcript X-ray (custom engine agents).
 
 Reads ``conversationtranscript.content`` (``{"activities": [...]}``). Messages come from ``type: message``
-(``from.role`` 1 = user, 0 = agent). Orchestration, knowledge search, topic and error details come from event and
+(``from.role`` 1 or "user" = user, 0 or "bot" = agent). Orchestration, knowledge search, topic and error details come from event and
 trace activities, matched on ``valueType`` by keyword because the generative-orchestration value types aren't a
 documented contract. Accepts the raw content, a Dataverse row or row list, or the Copilot Studio Analytics sessions
 CSV (a column holding the transcript JSON).
@@ -23,6 +23,28 @@ _FAILED = re.compile(r"fail|error|fault|cancel|timed?\s*out|denied|forbidden|una
 _NO_ANSWER = re.compile(r"nosearchresults|noresults|notanswered|unanswered|filtered|moderat|blocked|noanswer", re.I)
 _TOOLISH = re.compile(r"Connector|Flow|Http|Plugin|Tool|Search|Prompt", re.I)
 _GUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.I)
+_EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
+_PROFILE_ASK = re.compile(r"employee profile|(country|office|location)[^,.;]{0,40}(employment type|job level|tenure|start date)", re.I)
+_HEDGE = re.compile(r"couldn['’]t (verify|confirm|determine)|can['’]t (reliably|determine|confirm|verify)|"
+                    r"unable to (verify|confirm|determine)|without verified", re.I)
+
+
+def _pretty(name: str) -> str:
+    n = _short(name)
+    return "Knowledge search" if re.fullmatch(r"(P:)?UniversalSearchTool", n or "", re.I) else n.removeprefix("P:")
+
+
+def _dedupe_refs(text: str) -> str:
+    """Copilot Studio can append the same ``[n]: url`` reference list twice; keep the first copy of each line."""
+    seen, out = set(), []
+    for line in text.split("\n"):
+        key = line.strip()
+        if re.match(r"\[\d+\]:\s", key):
+            if key in seen:
+                continue
+            seen.add(key)
+        out.append(line)
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(out)).strip()
 
 
 def _activities_of(doc) -> list[dict]:
@@ -110,7 +132,7 @@ def _messages(doc: dict) -> tuple[list[str], list[str]]:
         if a.get("type") == "message":
             role = (a.get("from") or {}).get("role")
             text = a.get("text") or ""
-            (users if role == 1 else bots).append(text)
+            (users if role in (1, "1", "user") else bots).append(text)
     return users, bots
 
 
@@ -178,6 +200,10 @@ def diagnose(doc: dict, question: str = "") -> dict:
     empty = 0
     unknown_intent = design = consent = False
     details: dict[str, str] = {}
+    srch: list[dict] = []
+    pending_terms = ""
+    pii_queries: list[str] = []
+    profile_searches: list[str] = []
 
     for a in acts:
         typ, vt_raw = a.get("type") or "", a.get("valueType") or ""
@@ -186,18 +212,19 @@ def diagnose(doc: dict, question: str = "") -> dict:
             text = a.get("text") or ""
             if re.search(r"consentCard|connectionManagerCard|oauthCard|signinCard", vt_raw + " " + str(a.get("name") or ""), re.I):
                 consent = True
-            if (a.get("from") or {}).get("role") == 1:
+            if (a.get("from") or {}).get("role") in (1, "1", "user"):
                 if text and not re.match(r"\s*(/|-developer\b)", text):
                     users.append(text)
                     seq.append(("user", text))
                 elif text:
                     seq.append(("command", text))
             elif text:
+                text = _dedupe_refs(re.sub(r"<[^>]{1,80}>", "", text).strip())
                 bots.append(text)
                 seq.append(("bot", text))
             continue
         vt = (vt_raw or a.get("name") or "").lower()
-        if vt == "dialogtracing":
+        if vt.startswith("dialogtracing"):
             for x in (_get(value, "actions") or []) if isinstance(value, dict) else []:
                 topic, atype, aid, ex = _short(_s(x, "topicId")), _s(x, "actionType"), _s(x, "actionId"), _s(x, "exception")
                 if topic:
@@ -217,27 +244,50 @@ def diagnose(doc: dict, question: str = "") -> dict:
             for x in _get(value, "steps") or [] if isinstance(value, dict) else []:
                 n = x if isinstance(x, str) else _first(_s(x, "taskDialogId"), _s(x, "toolName"), _s(x, "displayName"))
                 if n:
-                    planned.append(_short(n))
+                    planned.append(_pretty(n))
         elif "planstep" in vt and "finish" in vt:
             name = _first(_s(value, "taskDialogId"), _s(value, "toolName"), _s(value, "displayName"), "a step")
             state = _first(_s(value, "state"), _s(value, "status"), _s(value, "result"))
             err = _first(_s(value, "error"), _s(_get(value, "error"), "message"), _s(value, "errorMessage"), _s(value, "exception"))
+            sr = _get(_get(value, "observation"), "search_result")
+            if isinstance(sr, dict):
+                res = _get(sr, "search_results") if isinstance(_get(sr, "search_results"), list) else []
+                errs = [_head(json.dumps(e) if not isinstance(e, str) else e, 160) for e in _get(sr, "search_errors") or []]
+                rec = srch[-1] if srch and not srch[-1].get("from_step") else None
+                if rec is None:
+                    rec = {"terms": pending_terms, "count": 0, "docs": [], "errors": []}
+                    srch.append(rec)
+                rec.update(count=len(res), docs=[_s(r, "Name") or _s(r, "Url") for r in res], from_step=True)
+                rec["errors"] = rec.get("errors", []) + errs
+                pending_terms = ""
             if _FAILED.search(state) or err:
-                failed.append(_short(name) + (f": {_head(err, 160)}" if err else ""))
+                failed.append(_pretty(name) + (f": {_head(err, 160)}" if err else ""))
             else:
-                ran.append(_short(name))
+                ran.append(_pretty(name))
+        elif "planstep" in vt and "bind" in vt:
+            args = _get(value, "arguments")
+            if isinstance(args, dict):
+                q = _first(_s(args, "search_query"), _s(args, "search_keywords"), _s(args, "query"), _s(args, "searchQuery"))
+                if q:
+                    pending_terms = q
+                    if _EMAIL.search(q):
+                        pii_queries.append(q)
+                    if _PROFILE_ASK.search(q):
+                        profile_searches.append(q)
         elif "planstep" in vt and "trigger" in vt:
             n = _first(_s(value, "taskDialogId"), _s(value, "toolName"), _s(value, "displayName"))
             if n:
-                planned.append(_short(n))
+                planned.append(_pretty(n))
         elif "planreceiveddebug" in vt or "planfinished" in vt or vt in ("variableassignment", "startconversation"):
             continue
         elif "search" in vt or "knowledge" in vt:
-            results = _count(value, "fullResults", "filteredResults", "searchResults", "results", "outputKnowledgeSources")
-            terms = _first(_s(value, "searchTerms"), _s(value, "rewrittenMessage"), _s(value, "query"))
-            searches.append((f"“{_head(terms, 80)}” " if terms else "") + (f"{results} result(s)" if results >= 0 else "ran"))
-            if results == 0:
-                empty += 1
+            full = _get(value, "fullResults")
+            results = len(full) if isinstance(full, list) else _count(value, "filteredResults", "searchResults", "results")
+            terms = _first(_s(value, "searchTerms"), _s(value, "rewrittenMessage"), _s(value, "query"), pending_terms)
+            errs = [_head(json.dumps(e) if not isinstance(e, str) else e, 160) for e in _get(value, "searchErrors") or []]
+            srch.append({"terms": terms, "count": results, "errors": errs,
+                         "docs": [_first(_s(_get(r, "metadata"), "title"), _s(r, "Name"), _s(r, "url")) for r in full or [] if isinstance(r, dict)]})
+            pending_terms = ""
         elif "generativeanswers" in vt or "answersupport" in vt:
             st = _first(_s(value, "completionState"), _s(value, "gPTAnswerState"), _s(value, "answerState"))
             if st:
@@ -256,6 +306,19 @@ def diagnose(doc: dict, question: str = "") -> dict:
                 errors.append(e)
 
     uniq = lambda xs: list(dict.fromkeys(x for x in xs if x))
+    search_failed = []
+    for s in srch:
+        c = s.get("count", -1)
+        docs = [d for d in s.get("docs") or [] if d]
+        label = (f"“{_head(s['terms'], 100)}” " if s.get("terms") else "") + (f"{c} result(s)" if c is not None and c >= 0 else "ran")
+        if docs:
+            label += ": " + "; ".join(uniq(docs)[:5]) + ("…" if len(uniq(docs)) > 5 else "")
+        searches.append(label)
+        if c == 0:
+            empty += 1
+        if s.get("errors"):
+            search_failed.append("knowledge search error: " + "; ".join(s["errors"][:2]))
+    failed += search_failed
     happened = [f"{len(users)} user message(s) and {len(bots)} agent message(s)" + (" (Copilot Studio test pane)." if design else ".")]
     if planned:
         happened.append("Planned: " + ", ".join(uniq(planned)) + ".")
@@ -271,11 +334,24 @@ def diagnose(doc: dict, question: str = "") -> dict:
         happened.append("The agent asked the user to sign in or allow a connection (consent card).")
     happened += [f"Error: {e}." for e in uniq(errors)]
 
+    q_low = (question or "").strip().lower()[:60]
+    qi = next((i for i in range(len(seq) - 1, -1, -1) if seq[i][0] == "user" and q_low and q_low in seq[i][1].lower()), None)
+    if qi is None:
+        qi = next((i for i in range(len(seq) - 1, -1, -1) if seq[i][0] == "user"), None)
+    asked = seq[qi][1] if qi is not None else ""
+    reply = next((t for r, t in seq[qi + 1:] if r == "bot"), "") if qi is not None else (bots[-1] if bots else "")
+    hedged = bool(reply and _HEDGE.search(reply[:1500]))
+    if pii_queries:
+        happened.append("The search query included the employee's name or email address.")
+    if profile_searches:
+        happened.append("The agent searched the knowledge sources for the employee's own profile (country, employment type, job level).")
+
     any_step = bool(planned or ran or failed or topics or searches)
     stages = {"planner": FAILED if unknown_intent and not any_step else OK if any_step else UNKNOWN}
     stages["search"] = (FAILED if failed or consent or (searches and empty == len(searches))
                         else OK if ran or searches else NOT_RUN if stages["planner"] == FAILED else UNKNOWN)
-    stages["synthesis"] = FAILED if any(_NO_ANSWER.search(s) for s in answer_states) else OK if answer_states else UNKNOWN
+    stages["synthesis"] = (FAILED if any(_NO_ANSWER.search(s) for s in answer_states)
+                           else OK if answer_states or reply else UNKNOWN)
     stages["render"] = OK if bots else UNKNOWN
 
     steps: list[str] = []
@@ -304,20 +380,30 @@ def diagnose(doc: dict, question: str = "") -> dict:
         cause = f"The answer step didn't produce an answer ({next(s for s in answer_states if _NO_ANSWER.search(s))})."
         steps.append("If the state mentions moderation or filtering, review content moderation and any instruction that tells "
                      "the agent to refuse.")
+    elif hedged and profile_searches:
+        stages["synthesis"] = FAILED
+        cause = ("The searches worked, but the agent answered generically: it looked for the employee's own profile "
+                 "(country, employment type, job level) in the knowledge documents, which don't hold it, so it couldn't tell "
+                 "which policy applies.")
+        steps.append("Give the agent the employee's profile from the HR system (the Workday or SuccessFactors profile topic, or "
+                     "the user context variables) and tell the instructions to use those values to pick the policy instead of "
+                     "searching documents for them.")
+    elif hedged:
+        stages["synthesis"] = FAILED
+        cause = ("The searches worked, but the agent answered generically because it couldn't verify details it needed "
+                 "(see its reply).")
+        steps.append("Check which detail the agent said it couldn't verify, and make sure a topic or variable provides it.")
     elif not acts:
         cause = "The transcript has no activities."
     else:
         cause = "No failure was found in the transcript."
+    if pii_queries:
+        steps.append("Keep personal details out of search queries: tell the instructions to search with the employee's question "
+                     "plus only context that changes the answer (for example country), never names, emails or IDs.")
 
     details.update({"activities": str(len(acts)), "testPane": "yes" if design else "",
                     "planned": ", ".join(uniq(planned)), "topics": ", ".join(uniq(topics)),
                     "failedSteps": "; ".join(failed), "knowledgeSearches": str(len(searches)) if searches else ""})
-    q_low = (question or "").strip().lower()[:60]
-    qi = next((i for i in range(len(seq) - 1, -1, -1) if seq[i][0] == "user" and q_low and q_low in seq[i][1].lower()), None)
-    if qi is None:
-        qi = next((i for i in range(len(seq) - 1, -1, -1) if seq[i][0] == "user"), None)
-    asked = seq[qi][1] if qi is not None else ""
-    reply = next((t for r, t in seq[qi + 1:] if r == "bot"), "") if qi is not None else (bots[-1] if bots else "")
     return {"stages": stages, "happened": happened, "likely_cause": cause, "next_steps": steps,
             "details": {k: v for k, v in details.items() if v},
             "question": asked, "response": reply,

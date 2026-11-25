@@ -116,6 +116,34 @@ def test_test_pane_snapshot_skips_commands_and_reads_instructions():
     assert diag["stages"]["search"] == "ok"
 
 
+def test_snapshot_string_roles_pii_query_and_profile_hedge():
+    ref = "[1]: https://contoso.sharepoint.com/Leave.aspx \"Leave.aspx\""
+    acts = [
+        {"type": "message", "from": {"role": "user"}, "text": "what is my leave policy"},
+        {"type": "event", "valueType": "DynamicPlanStepTriggered", "value": {"taskDialogId": "P:UniversalSearchTool", "type": "KnowledgeSource"}},
+        {"type": "event", "valueType": "DynamicPlanStepBindUpdate",
+         "value": {"taskDialogId": "P:UniversalSearchTool",
+                   "arguments": {"search_query": "Find Alex Doe's employee profile for alex@contoso.com, country and job level"}}},
+        {"type": "event", "valueType": "UniversalSearchToolTraceData", "value": {"fullResults": []}},
+        {"type": "event", "valueType": "DynamicPlanStepFinished",
+         "value": {"taskDialogId": "P:UniversalSearchTool", "state": "completed",
+                   "observation": {"search_result": {"search_results": [{"Name": "Leave.aspx"}, {"Name": "Benefits.aspx"}]}}}},
+        {"type": "message", "from": {"role": "bot"},
+         "text": f"I couldn't verify your country or job level from your employee record.\n\n{ref}\n\n{ref}"},
+        {"type": "message", "from": {"role": "user"}, "text": "/debug conversationid"},
+        {"type": "message", "from": {"role": "bot"}, "text": "Conversation ID: abc"},
+    ]
+
+    d = transcript.diagnose({"activities": acts})
+
+    assert d["question"] == "what is my leave policy"
+    assert d["response"].count(ref) == 1
+    assert d["stages"]["search"] == "ok"
+    assert d["stages"]["synthesis"] == "failed"
+    assert "employee's own profile" in d["likely_cause"]
+    assert any("name or email" in s for s in d["happened"])
+
+
 def test_devui_custom_engine_turn_is_not_reported_as_ungrounded():
     export = {
         "conversationId": "c-1",
