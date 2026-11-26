@@ -169,4 +169,4 @@ Reply with one of these:
 - **"make it a declarative agent topic"**: the same topic for a declarative agent.
 
 
-<!-- essdoctor: version=2.12.6 skill=generate-workflows command=topic-gen -->
+<!-- essdoctor: version=2.13.0 skill=generate-workflows command=topic-gen -->

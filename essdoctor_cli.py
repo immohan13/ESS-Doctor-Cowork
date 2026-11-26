@@ -1376,85 +1376,147 @@ def cmd_audit(a) -> str:
     def who_name(n: str) -> str:
         return "the hub" if hub and n == hub.name else f"**{_cell(n)}**"
 
+    areas = {
+        "Instructions": {"A25-INSTRUCTION-VOLUME"},
+        "Knowledge": {"A01-HUB-KNOWLEDGE", "A02-DUP-KNOWLEDGE-HUB-CHILD", "A03-DUP-KNOWLEDGE-CHILDREN",
+                      "A04-DUP-KNOWLEDGE-IN-AGENT", "A05-OVERLAPPING-KNOWLEDGE", "A06-KNOWLEDGE-OVER-25",
+                      "A07-GENERIC-KNOWLEDGE-DESCRIPTION", "A08-KNOWLEDGE-NOT-SEARCHED", "A09-MODEL-KNOWLEDGE",
+                      "A10-WEB-SEARCH", "A20-NO-SCOPED-SEARCH-TOPIC", "A22-ROUTING-TABLE-KNOWLEDGE"},
+        "Topics": {"A19-WORKDAY-LEGACY-USER-CONTEXT", "A24-DESCRIPTION-CONTRADICTS-CONDITION", "A26-INLINE-ALLOWLIST"},
+        "Settings": {"A17-MODERATION-BELOW-TEMPLATE", "A18-MODEL-SETTINGS-DIFFER", "A21-ENVIRONMENT-DRIFT"},
+    }
+
+    def area(g) -> str:
+        return next((k for k, ids in areas.items() if g.rule_id in ids), "Routing and hand-offs")
+
+    def sevs(levels: list[str]) -> str:
+        return " · ".join(f"{_SEV[s]} {n}" for s in ("high", "medium", "low") if (n := levels.count(s))) or "✅"
+
+    # Topics of full exports go through the same topic rules as generate workflows.
+    topic_checks = {id(x): topicgen.check(raw[id(x)]) for x in agents if x.full_export and id(x) in raw}
+    topic_groups = {k: _topic_groups(v) for k, v in topic_checks.items()}
+    skills = {id(x): re.findall(r"(?m)^\s*- kind: (\w*Skill\w*)\s*$", raw[id(x)]) for x in agents if id(x) in raw}
+
+    real = [g for g in gaps if g.severity != "info"]
+    order = ["Instructions", "Knowledge", "Topics", "Routing and hand-offs", "Settings"]
+    fixes = sorted([g for g in real if not g.optional], key=lambda g: order.index(area(g)))
+    options = [g for g in real if g.optional]
+    number = {id(g): i for i, g in enumerate(fixes + options, 1)}
+
+    def agent_gaps(x, ar: str) -> list:
+        return [g for g in fixes if area(g) == ar and x.name in g.agents]
+
+    def gap_md(g) -> list[str]:
+        out = [f"{number[id(g)]}. {_SEV.get(g.severity, '') if not g.optional else '⚪'} **{_cell(g.title)}**  ",
+               f"   {', '.join(who_name(n) for n in g.agents)}" + ("" if g.optional else f" · {g.severity}"),
+               f"   - **Why it matters:** {_cell(g.detail)}",
+               f"   - **{'Option' if g.optional else 'Fix'}:** {_cell(g.fix)}", ""]
+        if g.proposals:
+            what = "Source" if "Knowledge" in g.where else "Agent"
+            out += [f"   | {what} | Now | Proposed description |", "   | --- | --- | --- |"]
+            out += [f"   | {_cell(n)} | {_clip(_cell(now), 90)} | {_cell(prop)} |" for n, now, prop in g.proposals[:12]]
+            if len(g.proposals) > 12:
+                out.append(f"   | …and {len(g.proposals) - 12} more | | |")
+            out.append("")
+        if g.change:
+            out += [f"   **Proposed change**" + (f" (Copilot Studio > {_cell(g.where)})" if g.where else "") + ":", ""]
+            out += _indent("\n".join(_diff_block(g.change))) + [""]
+        return out
+
     md = ["## Agent audit", ""]
     if hub:
         md.append(f"The hub (**{_cell(hub.name)}**) routes to {len(r['children'])} agent(s); "
                   f"{len(kids)} of them uploaded and audited.")
     else:
         md.append("No hub (an agent that routes to other agents) was found, so each agent is audited on its own.")
-    md += ["", "| Agent | Role | Knowledge sources | Topics that search | Connected agents | Instructions | Instruction findings | Moderation |",
+    md += ["", "### Scorecard", "",
+           "Each cell counts the problems found in that area; details and fixes are in the numbered sections below. "
+           "\"Not in file\" means the upload has only the instructions.", "",
+           "| Agent | Role | 1. Instructions | 2. Knowledge | 3. Topics | 4. Skills | 5. Routing | 6. Settings |",
            "| --- | --- | --- | --- | --- | --- | --- | --- |"]
     for x in sorted(agents, key=lambda x: (role.get(id(x), "Other") != "Hub", role.get(id(x), "Other") != "Child", x.name)):
-        fs = checks.get(id(x), [])
-        sev = " · ".join(f"{_SEV[s]} {n}" for s in ("high", "medium") if (n := sum(1 for f in fs if f.severity == s)))
-        ks = f"{len(x.knowledge)}" + (" ⚠️" if len([k for k in x.knowledge if k.active]) > audit.KNOWLEDGE_FILTER_LIMIT else "")
+        full = x.full_export
         n_len = lengths.get(id(x), studio_len(x.instructions))
-        md.append(f"| **{_cell(x.name)}** | {role.get(id(x), 'Other')} | {ks if x.full_export else '—'} | "
-                  f"{sum(1 for t in x.topics if t.active and t.searches) if x.full_export else '—'} | "
-                  f"{len(x.connected) or len(x.instruction_refs) or '—'} | "
-                  f"{n_len:,} characters{' ❌' if n_len > DA_INSTRUCTION_LIMIT else ''} | "
-                  f"{sev or ('✅ none' if x.instructions else '—')} | "
-                  f"{x.settings.get('contentModeration', '—')} |")
+        ins = ([f.severity for f in checks.get(id(x), [])] + [g.severity for g in agent_gaps(x, "Instructions")])
+        ins_cell = (f"{sevs(ins)} · {n_len:,} chars{' ❌' if n_len > DA_INSTRUCTION_LIMIT else ''}"
+                    if x.instructions else "—")
+        know = (f"{sevs([g.severity for g in agent_gaps(x, 'Knowledge')])} · {len(x.knowledge)} sources"
+                if full else "not in file")
+        tg = topic_groups.get(id(x), [])
+        top = (f"{sevs([g['severity'] for g in tg] + [g.severity for g in agent_gaps(x, 'Topics')])} · "
+               f"{len(topicgen._topics(raw[id(x)]))} topics" if full and id(x) in raw else "not in file")
+        sk = (f"{len(skills.get(id(x), []))}" if skills.get(id(x)) else "none") if full else "not in file"
+        route = sevs([g.severity for g in agent_gaps(x, "Routing and hand-offs")])
+        sett = (f"{sevs([g.severity for g in agent_gaps(x, 'Settings')])} · moderation "
+                f"{x.settings.get('contentModeration', '—')}" if full else "not in file")
+        md.append(f"| **{_cell(x.name)}** | {role.get(id(x), 'Other')} | {ins_cell} | {know} | {top} | {sk} | "
+                  f"{route} | {sett} |")
     md.append("")
 
-    real = [g for g in gaps if g.severity != "info"]
-    fixes = [g for g in real if not g.optional]
-    options = [g for g in real if g.optional]
-    md += ["### Gaps across the agents", ""]
-    if not fixes:
-        md += ["✅ No cross-agent gaps found.", ""]
-    for i, g in enumerate(fixes + options, 1):
-        if i == len(fixes) + 1:
-            md += ["### Optional", "", "Choices to consider, not fixes; each has a trade-off.", ""]
-        md += [f"{i}. {_SEV.get(g.severity, '') if not g.optional else '⚪'} **{_cell(g.title)}**  ",
-               f"   {', '.join(who_name(n) for n in g.agents)}" + ("" if g.optional else f" · {g.severity}"),
-               f"   - **Why it matters:** {_cell(g.detail)}",
-               f"   - **{'Option' if g.optional else 'Fix'}:** {_cell(g.fix)}", ""]
-        if g.proposals:
-            what = "Source" if "Knowledge" in g.where else "Agent"
-            md += [f"   | {what} | Now | Proposed description |", "   | --- | --- | --- |"]
-            md += [f"   | {_cell(n)} | {_clip(_cell(now), 90)} | {_cell(prop)} |" for n, now, prop in g.proposals[:12]]
-            if len(g.proposals) > 12:
-                md.append(f"   | …and {len(g.proposals) - 12} more | | |")
-            md.append("")
-        if g.change:
-            md += [f"   **Proposed change**" + (f" (Copilot Studio > {_cell(g.where)})" if g.where else "") + ":", ""]
-            md += _indent("\n".join(_diff_block(g.change))) + [""]
+    def section(n: int, title: str, ar: str | None = None) -> None:
+        md.extend([f"### {n}. {title}", ""])
+        if ar:
+            for g in [g for g in fixes if area(g) == ar]:
+                md.extend(gap_md(g))
 
+    section(1, "Instructions", "Instructions")
     rows = [(x, checks[id(x)]) for x in agents if checks.get(id(x))]
-    md += ["### Instruction check per agent", ""]
+    for x, fs in rows:
+        top_f = sorted(fs, key=lambda f: _TOPIC_ORDER.get(f.severity, 3))
+        md.append(f"- {who(x)[0].upper() + who(x)[1:]} · {sevs([f.severity for f in fs])}:")
+        md += [f"  - {_SEV.get(f.severity, '')} {_title(f.to_dict())}" for f in top_f]
     if rows:
-        for x, fs in rows:
-            top = sorted(fs, key=lambda f: {"high": 0, "medium": 1, "low": 2}.get(f.severity, 3))
-            sev = " · ".join(f"{_SEV[s]} {n} {s}" for s in ("high", "medium", "low")
-                             if (n := sum(1 for f in fs if f.severity == s)))
-            md.append(f"- {who(x)[0].upper() + who(x)[1:]} · {sev}:")
-            md += [f"  - {_SEV.get(f.severity, '')} {_title(f.to_dict())}" for f in top]
         md.append("")
-    else:
+    elif not any(area(g) == "Instructions" for g in fixes):
         md += ["✅ No instruction findings beyond the ESS template.", ""]
 
-    # Topics of full exports go through the same topic rules as generated workflows.
-    topic_checks = {id(x): topicgen.check(raw[id(x)]) for x in agents if x.full_export and id(x) in raw}
-    if topic_checks:
-        md += ["### Topic check per agent", ""]
-        for x in agents:
-            if id(x) not in topic_checks:
-                continue
-            fs, n = topic_checks[id(x)], len(topicgen._topics(raw[id(x)]))
-            if not fs:
-                md.append(f"- **{_cell(x.name)}** · ✅ all {n} topics pass the ESS topic rules.")
-                continue
-            sev = " · ".join(f"{_SEV[s]} {c} {s}" for s in ("high", "medium", "low")
-                             if (c := sum(1 for f in fs if f.severity == s)))
-            by_rule: dict[str, list[str]] = {}
-            for f in fs:
-                by_rule.setdefault(f.title, []).append(f.topic)
-            top = sorted(by_rule.items(), key=lambda kv: (min({"high": 0, "medium": 1, "low": 2}[f.severity]
-                                                                 for f in fs if f.title == kv[0]), -len(kv[1])))[:3]
-            md.append(f"- **{_cell(x.name)}** · {n} topics · {sev}: "
-                      + "; ".join(f"{_cell(t)} ({len(ts)})" for t, ts in top) + ".")
-        md.append("")
+    section(2, "Knowledge", "Knowledge")
+    if not any(x.full_export for x in agents):
+        md += ["Not checked: the uploads have only the instructions.", ""]
+    elif not any(area(g) == "Knowledge" for g in fixes):
+        md += ["✅ No knowledge problems found.", ""]
+
+    section(3, "Topics", "Topics")
+    if not topic_checks:
+        md += ["Not checked: the uploads have only the instructions.", ""]
+    for x in agents:
+        if id(x) not in topic_checks:
+            continue
+        tg, fs = topic_groups[id(x)], topic_checks[id(x)]
+        n = len(topicgen._topics(raw[id(x)]))
+        label = who(x)[0].upper() + who(x)[1:]
+        if not tg:
+            md += [f"**{label.strip('*')}** · ✅ all {n} topics pass the ESS topic rules.", ""]
+            continue
+        md += [f"**{label.strip('*')}** · {n} topics, {len({f.topic for f in fs})} with findings · "
+               f"{sevs([g['severity'] for g in tg])}", ""]
+        md += _topic_groups_md(tg, numbered=False)
+
+    section(4, "Skills")
+    found = {id(x): v for x, v in ((x, skills.get(id(x), [])) for x in agents) if v}
+    if found:
+        md += [f"- {who(x)[0].upper() + who(x)[1:]}: {len(found[id(x)])} skill(s)." for x in agents if id(x) in found]
+        md += ["", "Skills aren't checked against ESS rules yet; test them with the evaluation set.", ""]
+    elif any(x.full_export for x in agents):
+        md += ["No agent skills in these exports. Any topic can also be generated as a skill (generate workflows "
+               "writes a `SKILL.md` with each topic), for when topics move to skills.", ""]
+    else:
+        md += ["Not checked: the uploads have only the instructions.", ""]
+
+    section(5, "Routing and hand-offs", "Routing and hand-offs")
+    if not any(area(g) == "Routing and hand-offs" for g in fixes):
+        md += ["✅ No routing or hand-off problems found.", ""]
+
+    section(6, "Settings", "Settings")
+    if not any(x.full_export for x in agents):
+        md += ["Not checked: the uploads have only the instructions.", ""]
+    elif not any(area(g) == "Settings" for g in fixes):
+        md += ["✅ Settings match the ESS template.", ""]
+
+    if options:
+        md += ["### Optional", "", "Choices to consider, not fixes; each has a trade-off.", ""]
+        for g in options:
+            md += gap_md(g)
 
     notes = [g for g in gaps if g.severity == "info"]
     missing = [re.sub(r" wasn't uploaded$", "", g.title) for g in notes if g.rule_id == "A11-CHILD-NOT-PROVIDED"]
@@ -1497,17 +1559,17 @@ def cmd_audit(a) -> str:
         label = "the hub" if hub is x else x.name
         over = lengths.get(id(x), 0) > DA_INSTRUCTION_LIMIT
         fit = (", and shortens them to fit the 8,000-character limit (checked so no rule, variable or topic reference "
-               "is lost)") if over else ", fitted under 8,000 characters"
+               "is lost)") if over else f", kept under {LENGTH_TARGET:,} characters"
         choices.append(f"- **\"fix {label} instructions\"**: {what}{fit}, with a test set.")
         hidden.append(f"<!-- essdoctor-next: \"fix {label} instructions\" = {cmd} -->")
     for x in agents:
         tf = topic_checks.get(id(x), [])
         if any(f.severity in ("high", "medium") for f in tf) and x.file in src:
             label = "the hub" if hub is x else x.name
-            choices.append(f"- **\"check {label} topics\"**: every topic finding with its fix (generate workflows); "
-                           "any topic can then be regenerated the ESS way.")
+            choices.append(f"- **\"check {label} topics\"**: every topic problem with its fix, a per-topic list "
+                           "(`topic_check.csv`), and an offer to rebuild any topic the ESS way (generate workflows).")
             hidden.append(f"<!-- essdoctor-next: \"check {label} topics\" = topic-check \"{src[x.file]}\" -->")
-    studio = [i for i, g in enumerate(fixes, 1) if g.rule_id != "A16-HUB-DELEGATION-RULES"]
+    studio = sorted(number[id(g)] for g in fixes if g.rule_id != "A16-HUB-DELEGATION-RULES")
     if choices or studio:
         md += ["### What to do next", ""]
         if choices:
@@ -1596,6 +1658,52 @@ def cmd_topic_gen(a) -> str:
     return "\n".join(md)
 
 
+_TOPIC_GROUP_FIX = {
+    "T04": "Give each topic a few distinct, natural trigger phrases (or a routing description); remove repeats.",
+    "T11": "Move each link or tenant value into an environment variable, so it changes in one place per environment.",
+    "T16": "Keep the list of values in an environment variable and compare against it.",
+}
+_TOPIC_ORDER = {"high": 0, "medium": 1, "low": 2}
+
+
+def _topic_groups(fs) -> list[dict]:
+    """Topic findings grouped by rule: one entry per problem, with the topics it affects and one fix."""
+    by: dict[str, list] = {}
+    for f in fs:
+        by.setdefault(f.rule, []).append(f)
+    out = []
+    for rule, items in by.items():
+        fixes = list(dict.fromkeys(f.fix for f in items))
+        out.append({"rule": rule, "severity": min((f.severity for f in items), key=lambda s: _TOPIC_ORDER.get(s, 3)),
+                    "title": items[0].title, "topics": list(dict.fromkeys(f.topic for f in items)),
+                    "fix": fixes[0] if len(fixes) == 1 else _TOPIC_GROUP_FIX.get(rule, fixes[0])})
+    return sorted(out, key=lambda g: (_TOPIC_ORDER.get(g["severity"], 3), -len(g["topics"])))
+
+
+def _topic_names(topics: list[str], limit: int = 6) -> str:
+    shown = ", ".join(f"**{_cell(t)}**" for t in topics[:limit])
+    return shown + (f" and {len(topics) - limit} more" if len(topics) > limit else "")
+
+
+def _topic_groups_md(groups: list[dict], numbered: bool = True) -> list[str]:
+    """Must-fix problems (high and medium) with topics and fix; low ones as one compact table."""
+    md: list[str] = []
+    major = [g for g in groups if g["severity"] in ("high", "medium")]
+    minor = [g for g in groups if g not in major]
+    for i, g in enumerate(major, 1):
+        lead, sub = (f"{i}. ", "   ") if numbered else ("- ", "  ")
+        md += [f"{lead}{_SEV[g['severity']]} **{_cell(g['title'])}** · {len(g['topics'])} topic(s)  ",
+               f"{sub}- **Topics:** {_topic_names(g['topics'])}",
+               f"{sub}- **Fix:** {_cell(g['fix'])}"] + ([""] if numbered else [])
+    if major and not numbered:
+        md.append("")
+    if minor:
+        md += ["**Also worth fixing** (low):", "", "| Problem | Topics | Fix |", "| --- | --- | --- |"]
+        md += [f"| {_SEV['low']} {_cell(g['title'])} | {len(g['topics'])}: {_topic_names(g['topics'], 3)} | "
+               f"{_cell(g['fix'])} |" for g in minor] + [""]
+    return md
+
+
 def cmd_topic_check(a) -> str:
     """Check one topic (code editor YAML) or every topic in a bot content export against the ESS topic rules."""
     from ess_maker.doctor import topicgen
@@ -1610,20 +1718,30 @@ def cmd_topic_check(a) -> str:
                          "editor) or upload the agent's test pane snapshot or bot content export.")
     n = len(topicgen._topics(text))
     fs = topicgen.check(text, getattr(a, "agent_type", "auto"))
-    counts = {s: sum(1 for f in fs if f.severity == s) for s in ("high", "medium", "low")}
+    groups = _topic_groups(fs)
+    counts = {s: sum(1 for g in groups if g["severity"] == s) for s in ("high", "medium", "low")}
+    flagged = len({f.topic for f in fs})
     md = ["## Topic check", "",
-          f"{n} topic(s) checked · {_SEV['high']} {counts['high']} high · {_SEV['medium']} {counts['medium']} medium · "
-          f"{_SEV['low']} {counts['low']} low", ""]
+          "| Topics checked | Topics with findings | Problems | 🔴 High | 🟠 Medium | 🟡 Low |",
+          "| --- | --- | --- | --- | --- | --- |",
+          f"| {n} | {flagged} | {len(groups)} | {counts['high']} | {counts['medium']} | {counts['low']} |", ""]
     if not fs:
         return "\n".join(md + ["✅ Every topic passes the ESS topic rules."])
-    md += ["| # | Topic | Finding | Fix |", "| --- | --- | --- | --- |"]
-    md += [f"| {i} | **{_cell(f.topic)}** | {_SEV.get(f.severity, '')} {_cell(f.title)} | {_cell(f.fix)} |"
-           for i, f in enumerate(fs[:60], 1)]
-    if len(fs) > 60:
-        md.append(f"| | …and {len(fs) - 60} more | | |")
-    md += ["", "To rebuild a topic the ESS way, describe the scenario and ESS Doctor generates it (generate workflows)."]
+    md += ["Each problem is listed once, with every topic it affects.", "", "### Fix first", ""]
+    major = [g for g in groups if g["severity"] in ("high", "medium")]
+    if not major:
+        md += ["✅ No high or medium problems.", ""]
+    md += _topic_groups_md(groups)
+    out = getattr(a, "out", None) or "outputs/topic_check.csv"
+    rows = ["Topic,Severity,Problem,Fix"] + [",".join('"' + str(v).replace('"', '""') + '"'
+                                                      for v in (f.topic, f.severity, f.title, f.fix)) for f in fs]
+    _write(out, "\n".join(rows))
+    md += [f"Every topic and finding, one per row: `{out}`.", "",
+           "### What next", "", "Reply with one of these:", "",
+           f"- **\"rebuild {_cell(major[0]['topics'][0] if major else groups[0]['topics'][0])}\"**: describe what the "
+           "topic should do, and ESS Doctor generates it the ESS way (generate workflows).",
+           "- **\"check again\"**: after you fix the topics, upload the new export to confirm.", ""]
     return "\n".join(md)
-
 
 
 def cmd_eval_triage(a) -> str:
@@ -2093,6 +2211,7 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("topic-check", help="Check a topic or every topic in an agent export against the ESS topic rules")
     p.add_argument("topic", help="Topic YAML (code editor), test pane snapshot or bot content export")
     p.add_argument("--agent-type", **agent_type)
+    p.add_argument("--out", default="outputs/topic_check.csv", help="Every topic finding, one per row")
     p.set_defaults(fn=cmd_topic_check)
 
     p = sub.add_parser("rules", help="List everything ESS Doctor checks: instruction rules, audit checks, practices")

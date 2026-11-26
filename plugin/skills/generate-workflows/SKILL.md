@@ -53,7 +53,7 @@ For `topic-gen`, show the report as returned, as Markdown, in its order: the sum
 3. Share the four files as downloads. If you saved them somewhere (for example OneDrive), add that location as one line under **Files**.
 4. Don't add your own summary, test steps or next-step line: the report has them. **What next** stays last, before the "Produced by" line; for "make it a … topic", re-run with `--agent-type da` or `cea`.
 
-For `topic-check`, show the report as returned (Markdown table), then at most three bullets on what to fix first. Offer to regenerate a flagged topic with `topic-gen` from the same scenario.
+For `topic-check`, show the report as returned, as Markdown: the summary table, **Fix first** (each problem once, with the topics it affects and one fix), the **Also worth fixing** table and **What next**. Share `topic_check.csv` (every topic and finding, one per row) as a download. Insert **What matters most** just before **What next**, in at most three short bullets; don't list topics one by one again. When the maker replies "rebuild <topic>", collect that topic's scenario and run `topic-gen`.
 
 ## Rules
 
