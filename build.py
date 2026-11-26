@@ -146,6 +146,10 @@ def main() -> None:
         if len(files) > 20 or size > 10_000_000 or any(f.stat().st_size > 5_000_000 for f in files):
             sys.exit(f"{s.name}: companion files exceed Cowork limits (20 files, 5 MB each, 10 MB total).")
     manifest = json.loads((plugin / "manifest.json").read_text(encoding="utf-8"))
+    # Cowork shows its own upload counter as "Version"; put the real version in the description it displays.
+    short = re.sub(r"\s*Version \d+(\.\d+)*\.?$", "", manifest["description"]["short"])
+    manifest["description"]["short"] = f"{short} Version {manifest['version']}."
+    (plugin / "manifest.json").write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     folders = {Path(e["folder"]).name for e in manifest.get("agentSkills", [])}
     if folders != {s.name for s in skills}:
         sys.exit(f"manifest.json agentSkills {sorted(folders)} don't match the skill folders {sorted(s.name for s in skills)}.")
