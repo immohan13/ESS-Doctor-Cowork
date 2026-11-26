@@ -204,6 +204,10 @@ def _apply_one(f: Finding, doc: AgentDoc, t: _Text, baseline: AgentDoc | None) -
     if rid == "L5-CONTEXT-IN-SEARCH":
         new = re.sub(r"\bcontextuali([sz])e (searches|search queries|queries|the search)( and (the )?responses)?",
                      r"contextuali\1e responses", t.get(no), flags=re.I)
+        # "Contextualize and augment search queries to make them more specific ... This ensures ..." (ESS template)
+        new = re.sub(r"\b(contextuali[sz]e and )?augment (the )?search quer(y|ies)[^.\n]*\.( This ensures[^.\n]*\.)?",
+                     "Use it to tailor the answer; add a profile value to a search only when the answer differs by it.",
+                     new, flags=re.I)
         if new != t.get(no):
             t.set(no, new)
             return "Employee context now tailors the answer, not the search."

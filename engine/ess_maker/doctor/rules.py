@@ -669,7 +669,9 @@ def _rule_pipeline_gaps(doc: AgentDoc) -> list[Finding]:
             "it, and keep reasoning context out of the search text.",
             ["What is the parental leave policy?", "My Outlook pane is not rendering"], "KI-005",
         ))
-    hit = _first(L, r"\b(use|apply)\b[^\n]{0,250}\bto contextuali[sz]e (searches|search queries|queries|the search)\b")
+    hit = _first(L, r"\b(use|apply)\b[^\n]{0,250}\bto contextuali[sz]e (searches|search queries|queries|the search)\b"
+                    r"|\bcontextuali[sz]e and augment (the )?search quer(y|ies)\b"
+                    r"|\baugment (the )?search quer(y|ies)\b[^\n]{0,40}\bmore specific\b")
     if hit:
         out.append(Finding(
             "L5-CONTEXT-IN-SEARCH", "medium", "L5 Search impact", "search",

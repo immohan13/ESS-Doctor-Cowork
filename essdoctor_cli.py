@@ -552,12 +552,10 @@ def cmd_fix(a) -> str:
     left, left_own, left_shared, card = _check_items(new_doc, base, cea)
     left_findings = [f for f in left if f["origin"] != "template"]
     size = "❌" if after > DA_INSTRUCTION_LIMIT else "⚠️" if after > LENGTH_TARGET else "✅"
-    md = ["## ESS Doctor fix", "",
-          f"Applied {len(r['applied'])} fix(es); {len(r['manual'])} need a manual change. "
-          f"Length {studio_len(doc.instruction_text):,} → {size} {after:,} of {c['limit']:,} (Copilot Studio count).",
+    md = ["## ESS Doctor fix", "", "", "",
           f"After the fix: {len(left_findings)} finding(s) left, {len(left_own)} recommended addition(s) not added, "
-          f"{card['followed']} of {card['applicable']} authoring practices followed.",
-          f"The fixed instructions are in `{a.out}`.", ""]
+          f"{card['followed']} of {card['applicable']} authoring practices followed.", ""]
+    written = len(r["applied"])
     if shortened and after < fixed_len:
         md += [f"> ✂️ **Shortened automatically:** the fixes took the instructions to {fixed_len:,} characters, over the "
                f"{DA_INSTRUCTION_LIMIT:,} limit, so the existing text was tightened to {after:,}. Every line the fix added "
@@ -629,6 +627,24 @@ def cmd_fix(a) -> str:
                                                    if short else "") + ".", "",
                    _diff_md({**dr["diff"], "char_delta": 0, "moderation_changed": False}), ""]
             tests += [t for t in dr.get("tests") or [] if t not in tests]
+            written += 1
+    if getattr(a, "append", None) and any(ln.startswith("### Also added:") for ln in md):
+        written += 1
+    final = studio_len(Path(a.out).read_text(encoding="utf-8"))
+    mark = "❌" if final > DA_INSTRUCTION_LIMIT else "⚠️" if final > LENGTH_TARGET else "✅"
+    decide = f"**{len(r['manual'])} need your decision** (listed below)" if r["manual"] else "none need your decision"
+    md[2] = (f"**{written} change(s) written into the new instructions**; {decide}. "
+             f"Length {studio_len(doc.instruction_text):,} → {mark} {final:,} of {c['limit']:,} (Copilot Studio count).")
+    md[3] = (f"**Your step:** copy the final instructions from `{a.out}` into Copilot Studio (Overview > Instructions > "
+             "Edit) and publish. ESS Doctor doesn't change the agent itself.")
+    final_doc = from_instructions(Path(a.out).read_text(encoding="utf-8"), doc.name + " (final)", "fix")
+    final_doc.topics, final_doc.globals_defined = doc.topics, doc.globals_defined
+    fl, fown, _, fcard = _check_items(final_doc, base, cea)
+    md[4] = (f"After the fix: {len([f for f in fl if f['origin'] != 'template'])} finding(s) left, "
+             f"{fcard['followed']} of {fcard['applicable']} authoring practices followed."
+             + (f" The added text made {len(fown)} more recommended practice(s) relevant ("
+                + "; ".join(_title(x) for x in fown) + "); reply \"fix recommended\" again to add "
+                + ("it." if len(fown) == 1 else "them.") if fown else ""))
     md += _evalset(a, tests, a.out)
     return "\n".join(md)
 

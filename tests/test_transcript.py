@@ -705,7 +705,7 @@ def test_check_skips_core_blocks_for_cea_and_fix_takes_finding_numbers():
         with contextlib.redirect_stdout(out):
             assert essdoctor_cli.main(["fix", str(src), "--rules", "recommended", "--agent-type", "cea", "--out",
                                        str(Path(d) / "r.txt"), "--no-evalset"]) == 0
-        assert "0 recommended addition(s) not added" in out.getvalue()
+        assert "change(s) written into the new instructions" in out.getvalue() and "more recommended" not in out.getvalue()
 
 
 def test_every_practice_sentence_satisfies_its_own_check():
@@ -734,7 +734,8 @@ def test_fix_all_adds_practices_in_their_own_sections_and_recheck_is_clean():
     assert "#Grounding" in fixed and fixed.index("# Always preserve") < fixed.index("#Grounding")
     links = fixed.split("# Always preserve", 1)[1].split("\n#", 1)[0]
     assert "search" not in links.lower()
-    assert re.search(r"After the fix: 0 finding\(s\) left, 0 recommended addition\(s\) not added, (\d+) of \1 authoring", report)
+    assert re.search(r"After the fix: 0 finding\(s\) left, (\d+) of \1 authoring", report)
+    assert "**Your step:** copy the final instructions" in report
     assert report.splitlines()[-1].startswith("<!-- essdoctor: version=") and "command=fix" in report.splitlines()[-1]
 
 
@@ -854,6 +855,19 @@ def test_customer_tuning_patterns_in_instruction_rules_and_fixes():
     assert "only when a configured tool or topic supports it" in out and "Want me to" not in out
     assert "offer only the options the knowledge search returned" in out
     assert {m["rule_id"] for m in r["manual"]} >= {"L6-PROSE-TOOL-ORDER", "L0-SELF-REPORTING", "L8-WORD-BAN"}
+
+
+def test_template_style_augmented_search_line_is_flagged_and_rewritten():
+    from ess_maker.doctor.agent_file import from_instructions
+    from ess_maker.doctor.fixes import fix
+    from ess_maker.doctor.rules import validate
+
+    doc = from_instructions("# Context handling\nPrioritize the user_profile to:\n1) Contextualize and augment search queries "
+                            "to make them more specific and better represent the user's intent. This ensures more relevant "
+                            "and useful responses. Examples:\n", "t")
+    assert any(f.rule_id == "L5-CONTEXT-IN-SEARCH" for f in validate(doc))
+    out = fix(doc, None, ["L5-CONTEXT-IN-SEARCH"])["new_instructions"]
+    assert "augment search queries" not in out and "1) Use it to tailor the answer;" in out and "differs by it. Examples:" in out
 
 
 def test_customer_tuning_patterns_in_agent_audit():
