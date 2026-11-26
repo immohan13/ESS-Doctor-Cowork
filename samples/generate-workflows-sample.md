@@ -1,12 +1,15 @@
-## Topic generator
+## Generate workflows
 
-| Topic | Backend | Agent type | Does | ESS scenario |
-| --- | --- | --- | --- | --- |
-| **WorkdayGetEducation** | Workday | custom engine agent | Answers a question for the signed-in employee | `msdyn_HRWorkdayHCMEmployeeGetEducation` |
+**Get Education**: a Workday topic for a custom engine agent. ✅ Passes every ESS topic rule.
 
-### Topic
+| Topic | Does | For | ESS scenario |
+| --- | --- | --- | --- |
+| **WorkdayGetEducation** | Answers a question | the signed-in employee only | `msdyn_HRWorkdayHCMEmployeeGetEducation` |
 
-In Copilot Studio: **Topics > Add a topic > From blank**, name it **Get Education**, open **⋯ > Open code editor**, select all, paste this, and save.
+### Step 1: Add the topic
+
+1. In Copilot Studio, go to **Topics > Add a topic > From blank** and name it **Get Education**.
+2. Open **⋯ > Open code editor**, select everything, paste the code below and save.
 
 ```yaml
 kind: AdaptiveDialog
@@ -77,9 +80,11 @@ outputType:
       type: String
 ```
 
-### Template configuration
+### Step 2: Add the template configuration
 
-Add a row to the **Employee Self Service Template Configuration** table with unique name `msdyn_HRWorkdayHCMEmployeeGetEducation` and this value. The topic finds it by that name.
+1. Open the **Employee Self Service Template Configuration** table and add a row.
+2. Set **Unique name** to `msdyn_HRWorkdayHCMEmployeeGetEducation`. The topic finds the row by this name.
+3. Paste the code below as the **Value** and save.
 
 ```xml
 <workdayEntityConfigurationTemplate>
@@ -130,28 +135,38 @@ Add a row to the **Employee Self Service Template Configuration** table with uni
 </workdayEntityConfigurationTemplate>
 ```
 
-### Check before importing
+### Step 3: Confirm these details
 
-- Check the request body and the XPath of each response field against the Workday operation.
-- The topic calls `msdyn_copilotforemployeeselfservicehr.topic.…` system topics; in another agent, change that prefix to match the agent's ESS solution.
+Filled in with likely values; only you can confirm them for your tenant.
 
-### Topic check
+- [ ] Check the request body and the XPath of each response field against the Workday operation.
+- [ ] The topic calls `msdyn_copilotforemployeeselfservicehr.topic.…` system topics; in another agent, change that prefix to match the agent's ESS solution.
 
-✅ The generated topic passes every topic rule.
+### Step 4: Test it
 
-### Files
-
-- `outputs/topic/topic.yaml`: the topic above.
-- `outputs/topic/msdyn_HRWorkdayHCMEmployeeGetEducation.xml`: the template configuration record.
-- `outputs/topic/SKILL.md`: the same scenario as an agent skill, for when it moves from a topic to a skill.
-- `outputs/topic/evalset.csv`: 7 test questions (the trigger phrases, and what the topic must not handle).
-
-**How to use the test set**
+`evalset.csv` has **7 questions**: the trigger phrases, plus questions the topic must not answer.
 
 1. In Copilot Studio, open the agent > **Evaluation** > **Create a test set** (or **New evaluation**) and upload the CSV.
 2. Run it on the current version.
 3. Add the topic, publish, and run it again.
 4. Upload both results files to ESS Doctor to compare them.
 
+### Files
 
-<!-- essdoctor: version=2.12.5 skill=generate-workflows command=topic-gen -->
+| File | What it is |
+| --- | --- |
+| `outputs/topic/topic.yaml` | The topic (step 1) |
+| `outputs/topic/msdyn_HRWorkdayHCMEmployeeGetEducation.xml` | The template configuration row (step 2) |
+| `outputs/topic/SKILL.md` | The same scenario as an agent skill, for when topics move to skills |
+| `outputs/topic/evalset.csv` | The test questions (step 4) |
+
+### What next
+
+Reply with one of these:
+
+- **"generate another topic"**: a new scenario, built the same way.
+- **"check my existing topics"**: upload a test pane snapshot or bot content export.
+- **"make it a declarative agent topic"**: the same topic for a declarative agent.
+
+
+<!-- essdoctor: version=2.12.6 skill=generate-workflows command=topic-gen -->

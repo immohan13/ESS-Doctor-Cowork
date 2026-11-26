@@ -46,14 +46,12 @@ python3 scripts/essdoctor.py topic-check inputs/snapshot.zip               # eve
 
 ## Respond
 
-For `topic-gen`:
+For `topic-gen`, show the report as returned, as Markdown, in its order: the summary line and table, then **Step 1** to the last step, **Files** and **What next**. The steps are what the maker does, in order; don't merge them into prose or reorder them.
 
-1. Show the report's summary table as returned.
-2. Show the **Topic** section with its `yaml` code block unchanged, so the maker copies it with the code block's **Copy** button into the topic's code editor. Never send them to the file preview.
-3. Show the **Template configuration** section with its code block unchanged, and the one line on where to add it.
-4. Show **Check before importing** as a short checklist (`- [ ]`): these are the values only the maker can confirm (Workday operation, ServiceNow table, knowledge sources, the system-topic prefix of their agent).
-5. Say in one line that `SKILL.md` has the same scenario as an agent skill, and share `evalset.csv` with the report's **How to use the test set** steps.
-6. End with **What next? Reply with one of these:** "generate another topic", "check my existing topics" (upload a snapshot or bot content export), or "make it a declarative agent topic" (re-run with `--agent-type da`).
+1. Keep every code block (`yaml`, `xml` or `json`) unchanged, so the maker copies it with the code block's **Copy** button. Never send them to the file preview.
+2. Keep **Confirm these details** as the checklist (`- [ ]`) it is: these are values only the maker can confirm (Workday operation, ServiceNow table, knowledge sources, the system-topic prefix of their agent).
+3. Share the four files as downloads. If you saved them somewhere (for example OneDrive), add that location as one line under **Files**.
+4. Don't add your own summary, test steps or next-step line: the report has them. **What next** stays last, before the "Produced by" line; for "make it a … topic", re-run with `--agent-type da` or `cea`.
 
 For `topic-check`, show the report as returned (Markdown table), then at most three bullets on what to fix first. Offer to regenerate a flagged topic with `topic-gen` from the same scenario.
 

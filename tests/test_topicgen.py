@@ -120,7 +120,9 @@ def test_topic_gen_command_writes_topic_config_skill_and_tests_and_plan_routes_t
         md = out.getvalue()
         files = sorted(p.name for p in (Path(d) / "t").iterdir())
         assert files == ["SKILL.md", "evalset.csv", "msdyn_employeeselfservicetemplateconfig.xml", "topic.yaml"]
-        assert "```yaml" in md and '"Table": "sn_hr_core_case_payroll"' in md and "passes every topic rule" in md
+        assert "```yaml" in md and '"Table": "sn_hr_core_case_payroll"' in md and "Passes every ESS topic rule" in md
+        assert md.index("### Step 1: Add the topic") < md.index("### Step 2: Add the template configuration") \
+            < md.index("### Files") < md.index("### What next")
         plan = io.StringIO()
         with contextlib.redirect_stdout(plan):
             assert essdoctor_cli.main(["plan", str(spec), str(Path(d) / "t" / "topic.yaml")]) == 0

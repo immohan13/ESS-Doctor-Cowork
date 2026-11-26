@@ -1543,16 +1543,29 @@ def cmd_topic_gen(a) -> str:
     rows = evalset.rows_for([{"prompt": x["prompt"], "expected": x["expected"]} for x in r["tests"]], include_golden=False)
     _write(str(out / "evalset.csv"), evalset.to_csv(rows))
     kind = {"read": "Answers a question", "create": "Creates a record", "update": "Updates a record"}[s.operation]
-    md = ["## Topic generator", "",
-          "| Topic | Backend | Agent type | Does | ESS scenario |", "| --- | --- | --- | --- | --- |",
-          f"| **{_cell(topicgen.topic_name(s))}** | {topicgen.BACKENDS[s.backend]} | "
-          f"{'declarative agent' if s.agent_type == 'da' else 'custom engine agent'} | {kind} for the "
-          f"{'manager (direct reports)' if s.audience == 'manager' else 'signed-in employee'} | "
-          f"{('`' + topicgen.scenario_name(s) + '`') if topicgen.scenario_name(s) else '—'} |", ""]
-    md += ["### Topic", "",
-           "In Copilot Studio: **Topics > Add a topic > From blank**, name it "
-           f"**{_cell(s.title)}**, open **⋯ > Open code editor**, select all, paste this, and save.", "",
-           "```yaml", r["topic"].rstrip(), "```", ""]
+    agent = "declarative agent" if s.agent_type == "da" else "custom engine agent"
+    who = "the manager's direct reports" if s.audience == "manager" else "the signed-in employee only"
+    scen = topicgen.scenario_name(s)
+    status = ("✅ Passes every ESS topic rule." if not r["findings"] else
+              f"⚠️ {len(r['findings'])} topic rule finding(s): see **Fix before importing**.")
+    md = ["## Generate workflows", "",
+          f"**{_cell(s.title)}**: a {topicgen.BACKENDS[s.backend]} topic for a {agent}. {status}", "",
+          "| Topic | Does | For | ESS scenario |", "| --- | --- | --- | --- |",
+          f"| **{_cell(topicgen.topic_name(s))}** | {kind} | {who} | {('`' + scen + '`') if scen else '—'} |", ""]
+    if r["findings"]:
+        md += ["### Fix before importing", ""] + [f"- {_SEV.get(x.severity, '')} {_cell(x.title)}: {_cell(x.fix)}"
+                                                  for x in r["findings"]] + [""]
+    step = 0
+
+    def head(title: str) -> list[str]:
+        nonlocal step
+        step += 1
+        return [f"### Step {step}: {title}", ""]
+
+    md += head("Add the topic") + [
+        f"1. In Copilot Studio, go to **Topics > Add a topic > From blank** and name it **{_cell(s.title)}**.",
+        "2. Open **⋯ > Open code editor**, select everything, paste the code below and save.", "",
+        "```yaml", r["topic"].rstrip(), "```", ""]
     if cfg:
         value = cfg[1]
         m = re.search(r"<msdyn_value>(.*)</msdyn_value>", value, re.S)
@@ -1560,22 +1573,26 @@ def cmd_topic_gen(a) -> str:
             import html as _html
             value = _html.unescape(m.group(1))
         lang = "xml" if value.lstrip().startswith("<") else "json"
-        md += ["### Template configuration", "",
-               "Add a row to the **Employee Self Service Template Configuration** table with unique name "
-               f"`{topicgen.scenario_name(s)}` and this value. The topic finds it by that name.", "",
-               f"```{lang}", value.rstrip(), "```", ""]
-    md += ["### Check before importing", ""] + [f"- {_cell(n)}" for n in r["notes"]] + [""]
-    if r["findings"]:
-        md += ["### Topic check", ""] + [f"- {_SEV.get(x.severity, '')} {_cell(x.title)}: {_cell(x.fix)}"
-                                          for x in r["findings"]] + [""]
-    else:
-        md += ["### Topic check", "", "✅ The generated topic passes every topic rule.", ""]
-    md += ["### Files", "",
-           f"- `{out / 'topic.yaml'}`: the topic above.",
-           *([f"- `{out / cfg[0]}`: the template configuration record."] if cfg else []),
-           f"- `{out / 'SKILL.md'}`: the same scenario as an agent skill, for when it moves from a topic to a skill.",
-           f"- `{out / 'evalset.csv'}`: {len(rows)} test questions (the trigger phrases, and what the topic must not "
-           "handle).", "", "**How to use the test set**", ""] + evalset.import_steps_md("Add the topic") + [""]
+        md += head("Add the template configuration") + [
+            "1. Open the **Employee Self Service Template Configuration** table and add a row.",
+            f"2. Set **Unique name** to `{scen}`. The topic finds the row by this name.",
+            "3. Paste the code below as the **Value** and save.", "",
+            f"```{lang}", value.rstrip(), "```", ""]
+    if r["notes"]:
+        md += head("Confirm these details") + ["Filled in with likely values; only you can confirm them for your tenant.",
+                                              ""] + [f"- [ ] {_cell(n)}" for n in r["notes"]] + [""]
+    md += head("Test it") + [f"`evalset.csv` has **{len(rows)} questions**: the trigger phrases, plus questions the "
+                             "topic must not answer.", ""] + evalset.import_steps_md("Add the topic") + [""]
+    md += ["### Files", "", "| File | What it is |", "| --- | --- |",
+           f"| `{out / 'topic.yaml'}` | The topic (step 1) |",
+           *([f"| `{out / cfg[0]}` | The template configuration row (step 2) |"] if cfg else []),
+           f"| `{out / 'SKILL.md'}` | The same scenario as an agent skill, for when topics move to skills |",
+           f"| `{out / 'evalset.csv'}` | The test questions (step {step}) |", ""]
+    other = "custom engine agent" if s.agent_type == "da" else "declarative agent"
+    md += ["### What next", "", "Reply with one of these:", "",
+           "- **\"generate another topic\"**: a new scenario, built the same way.",
+           "- **\"check my existing topics\"**: upload a test pane snapshot or bot content export.",
+           f"- **\"make it a {other} topic\"**: the same topic for a {other}.", ""]
     return "\n".join(md)
 
 
