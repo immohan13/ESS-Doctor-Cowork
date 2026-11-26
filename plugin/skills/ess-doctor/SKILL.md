@@ -33,7 +33,7 @@ For each step, follow that skill's own `SKILL.md` (its Run, Respond and Rules se
 | "Check / review / validate my instructions" | `instruction-check` | `check` |
 | "Fix all", "fix 1 and 2", "add the recommended practices", "apply the fixes" | `instruction-check` | `fix --rules 1,2`, `--rules recommended` or `--rules all` |
 | "fix recommended + <rule>" (a rule a report saved) | `instruction-check` | `fix --rules recommended --draft <path from essdoctor-intake>` |
-| "It's too long", "shorten" | `instruction-check` | `condense` |
+| "It's too long", "shorten", any instructions over 8,000 characters | `instruction-check` | `condense`, then its "Shorten to fit" rewrite verified by `shorten-check` |
 | "Add a rule / don't talk about X / use this format / add a synonym" | `instruction-draft` | `draft` |
 | Evaluation results CSV, or two of them (before and after) | `eval-triage` | `eval-triage` / `eval-compare` |
 | Hub and child agents (snapshots, ALM exports, YAML) | `agent-audit` | `audit`; then the command behind the choice the maker replies with (`essdoctor-next`) |
@@ -54,6 +54,7 @@ Chain the skills the way their reports point, without waiting to be asked:
 - A test pane snapshot "without a question" (the plan says so): don't X-ray it on its own; it adds the agent's instructions and setup, so pass it with `sorry-triage` and use it for `check`. Ask the maker for a snapshot saved right after the failing answer if they want a step-by-step X-ray.
 - A report that names instruction lines: `instruction-check` (`check`, then `fix` when the maker agrees). For a CEA, pass `--agent-type cea`.
 - Any instruction change (`fix`, `draft`, `condense`): share the `outputs/evalset.csv` it wrote; after the maker re-runs the evaluation, `eval-compare` the before and after results.
+- **Check, fix and shorten work together.** Whenever a `check`, `audit`, `fix`, `draft` or `condense` result is over 8,000 characters (or contains `<!-- essdoctor-rewrite: … -->`), run `instruction-check`'s "Shorten to fit" in the same reply, before showing final instructions. Never hand over instructions that are over the limit.
 - Make **one** instruction change per reply: the one the evidence points to most (a `draft` for a missing rule, or `fix` for the check's findings). When a report proposes a new rule it saves it and ends that part with `<!-- essdoctor-intake: <path> -->`; to apply the fixes and that rule together, run `fix --rules recommended --draft <path>` — that is one change with one final file. Offer anything else as the next step.
 
 ## 3. Respond
@@ -80,7 +81,7 @@ Refer to findings by number and title, never by internal rule IDs. No other head
 
 ## Rules
 
-- **Only ESS Doctor produces findings, causes and instruction text.** Don't add findings, causes or fixes of your own, don't reword the engine's verdicts, and don't edit its output (instructions, diffs, test sets) by hand: no rewording lines so the check passes, no moving sections, no manual shortening. If the engine can't do something (a fix needs a decision, a practice didn't fit, an input isn't recognised), say so and offer the ESS Doctor step that can: `condense`, `fix` again, `draft`, or more evidence.
+- **Only ESS Doctor produces findings, causes and instruction text.** Don't add findings, causes or fixes of your own, don't reword the engine's verdicts, and don't edit its output (instructions, diffs, test sets) by hand: no rewording lines so the check passes, no moving sections. The one exception is shortening instructions that are over the limit: follow `instruction-check`'s "Shorten to fit", and show the rewrite only after `shorten-check` passes. If the engine can't do something (a fix needs a decision, a practice didn't fit, an input isn't recognised), say so and offer the ESS Doctor step that can: shorten, `fix` again, `draft`, or more evidence.
 - **Don't create new skills, scripts or analyses** for an ESS problem, and don't fall back to general-purpose reasoning when an ESS Doctor skill covers the request. If no skill covers it, say so plainly and suggest the closest one.
 - If a skill's command fails with `ERROR:`, tell the maker what the message asks for; don't work around it.
 - ESS Doctor's rules are field guidance from the ESS templates and reviews of ESS agents, not Copilot Studio product documentation. Say so when a maker treats a finding as a product requirement, and remind them that a clean check doesn't replace running the evaluation test set before and after a change. Never list rules from memory; run `rules`.

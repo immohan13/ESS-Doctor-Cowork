@@ -555,9 +555,9 @@ def test_agent_audit_finds_multi_agent_gaps():
             with contextlib.redirect_stdout(out):
                 assert essdoctor_cli.main(["audit", "hub.yml", "hr.yml"]) == 0
             md = out.getvalue()
-            assert "### What to do next" in md and '**"fix Contoso Hub instructions"**' in md and "### Optional" in md
-            assert "### Topic check per agent" in md
-            cmd = _re.search(r'essdoctor-next: "fix Contoso Hub instructions" = (.+?) -->', md).group(1)
+            assert "### What to do next" in md and '**"fix the hub instructions"**' in md and "### Optional" in md
+            assert "### Topic check per agent" in md and " more" not in md.split("### Instruction check per agent")[1].split("###")[0]
+            cmd = _re.search(r'essdoctor-next: "fix the hub instructions" = (.+?) -->', md).group(1)
             assert "--append" in cmd
             with contextlib.redirect_stdout(io.StringIO()):
                 assert essdoctor_cli.main(shlex.split(cmd) + ["--out", "f.txt", "--no-evalset"]) == 0
@@ -705,7 +705,7 @@ def test_check_skips_core_blocks_for_cea_and_fix_takes_finding_numbers():
         with contextlib.redirect_stdout(out):
             assert essdoctor_cli.main(["fix", str(src), "--rules", "recommended", "--agent-type", "cea", "--out",
                                        str(Path(d) / "r.txt"), "--no-evalset"]) == 0
-        assert "change(s) written into the new instructions" in out.getvalue() and "more recommended" not in out.getvalue()
+        assert "| Written into the new instructions |" in out.getvalue() and "more recommended" not in out.getvalue()
 
 
 def test_every_practice_sentence_satisfies_its_own_check():
@@ -734,9 +734,38 @@ def test_fix_all_adds_practices_in_their_own_sections_and_recheck_is_clean():
     assert "#Grounding" in fixed and fixed.index("# Always preserve") < fixed.index("#Grounding")
     links = fixed.split("# Always preserve", 1)[1].split("\n#", 1)[0]
     assert "search" not in links.lower()
-    assert re.search(r"After the fix: 0 finding\(s\) left, (\d+) of \1 authoring", report)
-    assert "**Your step:** copy the final instructions" in report
+    assert re.search(r"\| 0 \| (\d+) of \1 \|", report)
+    assert "**Your step:** copy the final instructions" in report and "Not ready to paste" not in report
     assert report.splitlines()[-1].startswith("<!-- essdoctor: version=") and "command=fix" in report.splitlines()[-1]
+
+
+def test_shorten_check_passes_only_when_nothing_is_lost():
+    import contextlib
+    import tempfile
+    from pathlib import Path
+    import essdoctor_cli
+
+    original = ("# Core identity\nYou are an HR assistant for Contoso employees, and you help with every kind of HR "
+                "question that employees might have about their benefits, pay and leave.\n"
+                "- Benefits: use {System.Bot.Components.Topics.'x.topic.Benefits'.DisplayName}.\n"
+                "- If nothing is found, reply \"I couldn't find that in HR sources.\"\n")
+    good = ("# Core identity\nYou are an HR assistant for Contoso employees; help with benefits, pay and leave.\n"
+            "- Benefits: use {System.Bot.Components.Topics.'x.topic.Benefits'.DisplayName}.\n"
+            "- If nothing is found, reply \"I couldn't find that in HR sources.\"\n")
+    bad = "# Core identity\nYou are an HR assistant for Contoso employees.\n"
+    with tempfile.TemporaryDirectory() as d:
+        for name, body in (("o.txt", original), ("good.txt", good), ("bad.txt", bad)):
+            (Path(d) / name).write_text(body, encoding="utf-8")
+        reports = {}
+        for cand in ("good", "bad"):
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                assert essdoctor_cli.main(["shorten-check", str(Path(d) / "o.txt"), str(Path(d) / f"{cand}.txt"),
+                                           "--persona", "hr", "--out", str(Path(d) / f"{cand}_out.txt")]) == 0
+            reports[cand] = out.getvalue()
+        assert "**Passed.**" in reports["good"] and (Path(d) / "good_out.txt").exists()
+        assert "**Not yet.**" in reports["bad"] and "### Restore these" in reports["bad"]
+        assert not (Path(d) / "bad_out.txt").exists()
 
 
 def test_plan_identifies_each_file_and_routes_to_plugin_skills():

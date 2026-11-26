@@ -185,7 +185,8 @@ def core_presence(doc: AgentDoc) -> dict[str, list[int]]:
 
 # --- Rules ---------------------------------------------------------------------------------
 def _rule_length(doc: AgentDoc) -> list[Finding]:
-    n = doc.char_count
+    # Same count as Copilot Studio's instruction counter (each line break counts twice), unless the file carries it.
+    n = doc.platform_char_count or len("\n\n".join(doc.instruction_text.strip().split("\n")))
     hidden = [g for g, _ in doc.global_refs() if re.search(r"guardrail|instruction|rules|policy", g, re.I)]
     note = (
         f" Plus runtime text injected by {{Global.{hidden[0]}}}, which isn't counted here." if hidden else ""
@@ -194,12 +195,13 @@ def _rule_length(doc: AgentDoc) -> list[Finding]:
         return [
             Finding(
                 "L0-LENGTH", "high", "L0 Platform limits", "platform",
-                f"Instructions are {n:,} characters — over the 8,000-character declarative agent limit",
+                f"Instructions are {n:,} characters, over the 8,000-character limit",
                 [doc.instructions[0].no, doc.instructions[-1].no], f"{n:,} chars",
-                "The DA manifest rejects or truncates instructions over 8,000 characters; whatever falls past "
-                "the cut-off (usually the customer additions at the end) silently stops applying." + note,
-                "Move procedures into DA skills or topic descriptions, move fixed answers into topics/editorial "
-                "answers, and remove duplicated guidance. Do not offload instructions into knowledge documents.",
+                "Copilot Studio cuts instructions off at 8,000 characters; whatever falls past the cut-off (usually "
+                "the additions at the end) silently stops applying." + note,
+                "Ask ESS Doctor to shorten them: it tightens the wording automatically, then rewrites the longest lines "
+                "and checks that no rule, variable, topic reference or quoted reply was lost. Moving long procedures "
+                "into topic descriptions also frees room.",
                 [], "KI-040",
             )
         ]
@@ -207,9 +209,9 @@ def _rule_length(doc: AgentDoc) -> list[Finding]:
         return [
             Finding(
                 "L0-HEADROOM", "medium", "L0 Platform limits", "platform",
-                f"Instructions are {n:,} characters — within 10% of the 8,000 limit",
+                f"Instructions are {n:,} characters, within 10% of the 8,000-character limit",
                 [doc.instructions[0].no], f"{n:,} chars",
-                "The next customer edit or template update will push the agent over the DA limit." + note,
+                "The next edit or template update can push the agent over the limit." + note,
                 "Reserve headroom: move long procedures into skills or topic descriptions before adding more.",
                 [], "KI-040",
             )
@@ -221,13 +223,17 @@ def _rule_references(doc: AgentDoc) -> list[Finding]:
     out: list[Finding] = []
     refs = doc.topic_refs()
     if refs and not doc.is_full_export:
+        names = sorted({re.sub(r"[_]+", " ", r.split(".topic.")[-1]).strip() for r, _ in refs})
         out.append(
             Finding(
                 "L1-REFS-UNVERIFIED", "info", "L1 References", "routing",
-                f"{len(refs)} topic reference(s) can't be verified from an instructions-only export",
-                sorted({ln for _, ln in refs}), "; ".join(sorted({r.split('.topic.')[-1] for r, _ in refs})),
-                "Topic references that don't resolve make the orchestrator ignore the routing rule.",
-                "Upload the full bot content export so references can be checked against installed topics.",
+                f"{len(names)} topic(s) named in the instructions can't be checked from this file: "
+                + ", ".join(names[:6]) + (f" and {len(names) - 6} more" if len(names) > 6 else ""),
+                sorted({ln for _, ln in refs}), "; ".join(names),
+                "The instructions send questions to these topics. This file has only the instructions, so ESS Doctor "
+                "can't confirm the topics exist and are turned on; a missing or turned-off topic makes that routing "
+                "rule do nothing.",
+                "Upload the agent's test pane snapshot (or bot content export) to check them.",
             )
         )
     elif refs:

@@ -38,7 +38,7 @@ Checked against the ESS HR template.
    + When the user asks specifically about relocation (for example, a relocation package, relocation eligibility, or relocation status), don't answer or start an action; use the approved response below. Questions about general expenses, reimbursements, visas, or benefits that aren't about relocation follow the routing tree as usual. If it's unclear whether the question is about relocation, ask one clarifying question.
    ```
 
-3. 🟠 **Instructions are 7,627 characters — within 10% of the 8,000 limit**  
+3. 🟠 **Instructions are 7,677 characters, within 10% of the 8,000-character limit**  
    Line 1 · medium
    - **Employees see:** Incomplete answer
    - **Fix:** Reserve headroom: move long procedures into skills or topic descriptions before adding more.
@@ -84,4 +84,4 @@ Checked against the ESS HR template.
 To apply, ask ESS Doctor: **"fix 1, 2, 3"** for findings by number; **"fix all"** to include the optional practices too.
 
 
-<!-- essdoctor: version=2.12.3 skill=instruction-check command=check -->
+<!-- essdoctor: version=2.12.4 skill=instruction-check command=check -->

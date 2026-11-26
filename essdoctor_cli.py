@@ -545,6 +545,9 @@ def cmd_fix(a) -> str:
         ids = [i for i in ids if i != practice[-1]]
         r, fixed_len, shortened = attempt(ids)
     _write(a.out, r["new_instructions"])
+    # Notes about what a file can't show, and the length (handled by the shortening step), aren't decisions.
+    r["manual"] = [x for x in r["manual"] if x.get("rule_id") != "L1-REFS-UNVERIFIED"
+                   and not (x.get("rule_id", "").startswith("L0-") and studio_len(r["new_instructions"]) > DA_INSTRUCTION_LIMIT)]
     c = r["chars"]
     after = studio_len(r["new_instructions"])
     new_doc = from_instructions(r["new_instructions"], doc.name + " (fixed)", "fix")
@@ -567,14 +570,12 @@ def cmd_fix(a) -> str:
             p = BY_ID.get(rid[3:]) if rid.startswith("BP-") else None
             return p.title if p else rid
         md += [f"> ⚠️ **{len(dropped)} practice(s) not added: they don't fit under the {DA_INSTRUCTION_LIMIT:,}-character "
-               "limit.** " + "; ".join(_ptitle(d) for d in dropped) + ". To add them, first shorten or move the "
-               "longest lines into topic descriptions (ask ESS Doctor to shorten), then fix again.", ""]
-    elif after > DA_INSTRUCTION_LIMIT:
-        md += [f"> ❌ **{after - DA_INSTRUCTION_LIMIT:,} characters over the limit.** Copilot Studio cuts off the end. "
-               "Apply fewer fixes, or shorten the instructions first.", ""]
+               "limit.** " + "; ".join(_ptitle(d) for d in dropped) + ". Once ESS Doctor has shortened the "
+               "instructions, reply \"fix recommended\" again to add them.", ""]
     if r["applied"]:
         md += ["### Done: already in the new instructions", "",
-               f"These {len(r['applied'])} changes are written into `{a.out}`; you don't edit them in by hand.", ""]
+               ("This change is" if len(r["applied"]) == 1 else f"These {len(r['applied'])} changes are")
+               + f" written into `{a.out}`; you don't edit {'it' if len(r['applied']) == 1 else 'them'} in by hand.", ""]
         md += [f"- **{_title(x)}**{_at(x, off)}: {_cell(x['change'])}" for x in r["applied"]] + [""]
     if r["manual"]:
         md += ["### Not done: needs your decision", ""] + [f"- **{_title(x)}**{_at(x, off)}: {_cell(x['change'])}" for x in r["manual"]] + [""]
@@ -632,20 +633,72 @@ def cmd_fix(a) -> str:
         written += 1
     final = studio_len(Path(a.out).read_text(encoding="utf-8"))
     mark = "❌" if final > DA_INSTRUCTION_LIMIT else "⚠️" if final > LENGTH_TARGET else "✅"
-    decide = f"**{len(r['manual'])} need your decision** (listed below)" if r["manual"] else "none need your decision"
-    md[2] = (f"**{written} change(s) written into the new instructions**; {decide}. "
-             f"Length {studio_len(doc.instruction_text):,} → {mark} {final:,} of {c['limit']:,} (Copilot Studio count).")
-    md[3] = (f"**Your step:** copy the final instructions from `{a.out}` into Copilot Studio (Overview > Instructions > "
-             "Edit) and publish. ESS Doctor doesn't change the agent itself.")
+    decide = f"{len(r['manual'])} (listed below)" if r["manual"] else "none"
     final_doc = from_instructions(Path(a.out).read_text(encoding="utf-8"), doc.name + " (final)", "fix")
     final_doc.topics, final_doc.globals_defined = doc.topics, doc.globals_defined
     fl, fown, _, fcard = _check_items(final_doc, base, cea)
-    md[4] = (f"After the fix: {len([f for f in fl if f['origin'] != 'template'])} finding(s) left, "
-             f"{fcard['followed']} of {fcard['applicable']} authoring practices followed."
-             + (f" The added text made {len(fown)} more recommended practice(s) relevant ("
-                + "; ".join(_title(x) for x in fown) + "); reply \"fix recommended\" again to add "
-                + ("it." if len(fown) == 1 else "them.") if fown else ""))
+    left_n = len([f for f in fl if f["origin"] != "template" and f["severity"] != "info"])
+    md[2] = "\n".join([
+        "| Written into the new instructions | Needs your decision | Length (Copilot Studio count) | Findings left | "
+        "Practices followed |", "| --- | --- | --- | --- | --- |",
+        f"| {written} change(s) | {decide} | {studio_len(doc.instruction_text):,} → {mark} {final:,} of "
+        f"{c['limit']:,} | {left_n} | {fcard['followed']} of {fcard['applicable']} |", ""])
+    if final > DA_INSTRUCTION_LIMIT:
+        md[3] = (f"**Not ready to paste yet:** still {final - DA_INSTRUCTION_LIMIT:,} characters over the limit, and "
+                 "Copilot Studio would cut off the end. ESS Doctor shortens it next: it rewrites the longest lines and "
+                 "checks that no rule, variable, topic reference or quoted reply is lost."
+                 f'\n\n<!-- essdoctor-rewrite: original="{a.out}" start="{a.out}" -->')
+    else:
+        md[3] = (f"**Your step:** copy the final instructions from `{a.out}` into Copilot Studio (Overview > "
+                 "Instructions > Edit) and publish. ESS Doctor doesn't change the agent itself.")
+    md[4] = (f"The added text made {len(fown)} more recommended practice(s) relevant ("
+             + "; ".join(_title(x) for x in fown) + "); reply \"fix recommended\" again to add "
+             + ("it." if len(fown) == 1 else "them.") if fown else "")
     md += _evalset(a, tests, a.out)
+    return "\n".join(md)
+
+
+def cmd_shorten_check(a) -> str:
+    """Verify a shortened rewrite of the instructions: under the limit, and no rule, variable, topic reference, quoted
+    reply, section, ESS core block or followed practice lost, and no new findings. Writes the result when it passes."""
+    from ess_maker.doctor.condense import _lost, abilities
+
+    orig = load_agent(a.original)
+    base = baseline(_persona(a.persona, orig))
+    text = _text(_read(a.candidate)).replace("\r\n", "\n").strip() + "\n"
+    cand = from_instructions(text, orig.name + " (shortened)", "shorten")
+    cand.topics, cand.globals_defined = orig.topics, orig.globals_defined
+    cand.is_full_export, cand.content_moderation = orig.is_full_export, orig.content_moderation
+    lost = _lost(abilities(orig, base), abilities(cand, base))
+    n0, n1 = studio_len(orig.instruction_text), studio_len(text)
+    strict = re.compile(r"(?i)\b(never|do not|don'?t|always|must|only)\b")
+    r0 = sum(1 for ln in orig.instruction_text.splitlines() if strict.search(ln))
+    r1 = sum(1 for ln in text.splitlines() if strict.search(ln))
+    fits = n1 <= DA_INSTRUCTION_LIMIT
+    passed = fits and not lost
+    mark = "❌" if not fits else "⚠️" if n1 > LENGTH_TARGET else "✅"
+    md = ["## Shorten check", "",
+          ("✅ **Passed.** The shortened instructions keep everything the original does." if passed else
+           "❌ **Not yet.** Fix what's listed below and check again."), "",
+          "| Check | Result |", "| --- | --- |",
+          f"| Length | {n0:,} → {mark} {n1:,} of {DA_INSTRUCTION_LIMIT:,} |",
+          "| Rules, variables, topic references, quoted replies, sections, ESS core blocks, practices | "
+          + ("✅ all kept" if not lost else "❌ " + "; ".join(f"{k}: {len(v)}" for k, v in lost.items())) + " |",
+          f"| Lines with never / always / must / only | {r0} → {r1}"
+          + (" ⚠️ check no rule was dropped when lines were merged" if r1 < r0 else " ✅") + " |", ""]
+    if lost:
+        md += ["### Restore these", ""]
+        for k, v in lost.items():
+            md += [f"- **{_cell(k)}:** " + "; ".join(f"`{_clip(_cell(x), 120)}`" for x in v[:8])
+                   + (f" and {len(v) - 8} more" if len(v) > 8 else "")]
+        md.append("")
+    if not fits:
+        md += [f"Still {n1 - DA_INSTRUCTION_LIMIT:,} characters over the limit: shorten more lines.", ""]
+    if passed:
+        _write(a.out, text)
+        md += [f"The shortened instructions are in `{a.out}`.", "",
+               "### What changed", "", _diff_md(diff_docs(from_instructions(orig.instruction_text, orig.name, "current"),
+                                                         cand)), ""]
     return "\n".join(md)
 
 
@@ -673,6 +726,10 @@ def cmd_condense(a) -> str:
     if r["new_text"] != doc.instruction_text:
         md += ["### What changed", "", _diff_md(diff_docs(from_instructions(doc.instruction_text, doc.name, "current"),
                                                           from_instructions(r["new_text"], doc.name + " (shortened)"))), ""]
+    if not r["reached"]:
+        md += [f"**Next:** the automatic pass can't remove {r['still_needed']:,} more characters without rewording. "
+               "ESS Doctor rewrites the longest lines next and checks that nothing is lost before you see the result.",
+               "", f'<!-- essdoctor-rewrite: original="{a.instructions}" start="{a.out}" -->', ""]
     md += _evalset(a, [], a.out)
     return "\n".join(md)
 
@@ -1271,18 +1328,28 @@ def cmd_audit(a) -> str:
     role = {id(hub): "Hub"} if hub else {}
     role.update({id(k): "Child" for k in kids})
 
-    checks = {}
+    checks, lengths, unverified = {}, {}, {}
     for x in agents:
         if not x.instructions:
             continue
         base = baseline(x.persona) if x.persona in TEMPLATE_MODERATION else None
         doc = from_instructions(x.instructions, x.name, "audit")
+        lengths[id(x)] = studio_len(doc.instruction_text)
+        all_f = validate(doc, base)
+        unverified[id(x)] = next((f.current for f in all_f if f.rule_id == "L1-REFS-UNVERIFIED"), "")
         # A full export (bot content) is a Copilot Studio agent: its template routes and grounds through topics.
-        checks[id(x)] = [f for f in validate(doc, base) if f.origin != "template" and not (x.full_export and _cea_skip(f))]
+        checks[id(x)] = [f for f in all_f if f.origin != "template" and f.severity != "info"
+                         and not (x.full_export and _cea_skip(f))]
+
+    def who(x) -> str:
+        return "the hub" if hub is x else f"**{_cell(x.name)}**"
+
+    def who_name(n: str) -> str:
+        return "the hub" if hub and n == hub.name else f"**{_cell(n)}**"
 
     md = ["## Agent audit", ""]
     if hub:
-        md.append(f"Hub **{_cell(hub.name)}** routes to {len(r['children'])} agent(s); "
+        md.append(f"The hub (**{_cell(hub.name)}**) routes to {len(r['children'])} agent(s); "
                   f"{len(kids)} of them uploaded and audited.")
     else:
         md.append("No hub (an agent that routes to other agents) was found, so each agent is audited on its own.")
@@ -1292,10 +1359,12 @@ def cmd_audit(a) -> str:
         fs = checks.get(id(x), [])
         sev = " · ".join(f"{_SEV[s]} {n}" for s in ("high", "medium") if (n := sum(1 for f in fs if f.severity == s)))
         ks = f"{len(x.knowledge)}" + (" ⚠️" if len([k for k in x.knowledge if k.active]) > audit.KNOWLEDGE_FILTER_LIMIT else "")
+        n_len = lengths.get(id(x), studio_len(x.instructions))
         md.append(f"| **{_cell(x.name)}** | {role.get(id(x), 'Other')} | {ks if x.full_export else '—'} | "
                   f"{sum(1 for t in x.topics if t.active and t.searches) if x.full_export else '—'} | "
                   f"{len(x.connected) or len(x.instruction_refs) or '—'} | "
-                  f"{studio_len(x.instructions):,} characters | {sev or ('✅ none' if x.instructions else '—')} | "
+                  f"{n_len:,} characters{' ❌' if n_len > DA_INSTRUCTION_LIMIT else ''} | "
+                  f"{sev or ('✅ none' if x.instructions else '—')} | "
                   f"{x.settings.get('contentModeration', '—')} |")
     md.append("")
 
@@ -1309,7 +1378,7 @@ def cmd_audit(a) -> str:
         if i == len(fixes) + 1:
             md += ["### Optional", "", "Choices to consider, not fixes; each has a trade-off.", ""]
         md += [f"{i}. {_SEV.get(g.severity, '') if not g.optional else '⚪'} **{_cell(g.title)}**  ",
-               f"   {', '.join('**' + _cell(n) + '**' for n in g.agents)}" + ("" if g.optional else f" · {g.severity}"),
+               f"   {', '.join(who_name(n) for n in g.agents)}" + ("" if g.optional else f" · {g.severity}"),
                f"   - **Why it matters:** {_cell(g.detail)}",
                f"   - **{'Option' if g.optional else 'Fix'}:** {_cell(g.fix)}", ""]
         if g.proposals:
@@ -1330,8 +1399,8 @@ def cmd_audit(a) -> str:
             top = sorted(fs, key=lambda f: {"high": 0, "medium": 1, "low": 2}.get(f.severity, 3))
             sev = " · ".join(f"{_SEV[s]} {n} {s}" for s in ("high", "medium", "low")
                              if (n := sum(1 for f in fs if f.severity == s)))
-            names = "; ".join(_title(f.to_dict()) for f in top[:4]) + (f"; and {len(top) - 4} more" if len(top) > 4 else "")
-            md.append(f"- **{_cell(x.name)}** · {sev}: {names}.")
+            md.append(f"- {who(x)[0].upper() + who(x)[1:]} · {sev}:")
+            md += [f"  - {_SEV.get(f.severity, '')} {_title(f.to_dict())}" for f in top]
         md.append("")
     else:
         md += ["✅ No instruction findings beyond the ESS template.", ""]
@@ -1360,18 +1429,23 @@ def cmd_audit(a) -> str:
 
     notes = [g for g in gaps if g.severity == "info"]
     missing = [re.sub(r" wasn't uploaded$", "", g.title) for g in notes if g.rule_id == "A11-CHILD-NOT-PROVIDED"]
-    partial = [x.name for x in agents if not x.full_export]
+    partial = [x for x in agents if not x.full_export]
     if notes or partial:
         md += ["### Not checked", ""]
-        if missing:
-            md.append(f"- **{len(missing)} connected agent(s) weren't uploaded**, so their knowledge, topics and "
-                      "instructions weren't checked: " + ", ".join(f"**{_cell(n)}**" for n in missing)
-                      + ". Upload a test pane snapshot or export of each to include them.")
+        for n in missing:
+            md.append(f"- **{_cell(n)}** wasn't uploaded. The hub routes to it, so its knowledge, topics and "
+                      "instructions weren't checked; upload its test pane snapshot or export to include it.")
         md += [f"- {_cell(g.title)}: {_cell(g.fix)}" for g in notes if g.rule_id != "A11-CHILD-NOT-PROVIDED"]
         if partial:
-            md.append(f"- {', '.join('**' + _cell(n) + '**' for n in partial)}: the file has only the instructions, so "
-                      "knowledge sources, topics and settings weren't checked. Upload the agent's test pane snapshot for "
-                      "a full audit.")
+            names = [who(x) for x in partial]
+            md.append(f"- The {'file' if len(names) == 1 else 'files'} for "
+                      + (", ".join(names[:-1]) + " and " + names[-1] if len(names) > 1 else names[0])
+                      + " have only the instructions, so knowledge sources, topics and settings weren't checked. "
+                      "Upload each agent's test pane snapshot for a full audit.")
+            for x in partial:
+                if unverified.get(id(x)):
+                    md.append(f"  - Topics {who(x)} names in its instructions, not checked to exist and be turned "
+                              f"on: {_cell(unverified[id(x)])}.")
         md.append("")
 
     # Next step: one instruction fix per agent (its findings, recommended additions and any audit section), plus the
@@ -1391,14 +1465,19 @@ def cmd_audit(a) -> str:
             _write(path, "\n".join(ln[2:] for ln in deleg.change if ln.startswith("+ ")))
             cmd += f' --append "{path}"'
             what += ", plus the delegation section"
-        choices.append(f"- **\"fix {x.name} instructions\"**: {what}, fitted under 8,000 characters, with a test set.")
-        hidden.append(f"<!-- essdoctor-next: \"fix {x.name} instructions\" = {cmd} -->")
+        label = "the hub" if hub is x else x.name
+        over = lengths.get(id(x), 0) > DA_INSTRUCTION_LIMIT
+        fit = (", and shortens them to fit the 8,000-character limit (checked so no rule, variable or topic reference "
+               "is lost)") if over else ", fitted under 8,000 characters"
+        choices.append(f"- **\"fix {label} instructions\"**: {what}{fit}, with a test set.")
+        hidden.append(f"<!-- essdoctor-next: \"fix {label} instructions\" = {cmd} -->")
     for x in agents:
         tf = topic_checks.get(id(x), [])
         if any(f.severity in ("high", "medium") for f in tf) and x.file in src:
-            choices.append(f"- **\"check {x.name} topics\"**: every topic finding with its fix (generate workflows); "
+            label = "the hub" if hub is x else x.name
+            choices.append(f"- **\"check {label} topics\"**: every topic finding with its fix (generate workflows); "
                            "any topic can then be regenerated the ESS way.")
-            hidden.append(f"<!-- essdoctor-next: \"check {x.name} topics\" = topic-check \"{src[x.file]}\" -->")
+            hidden.append(f"<!-- essdoctor-next: \"check {label} topics\" = topic-check \"{src[x.file]}\" -->")
     studio = [i for i, g in enumerate(fixes, 1) if g.rule_id != "A16-HUB-DELEGATION-RULES"]
     if choices or studio:
         md += ["### What to do next", ""]
@@ -1684,7 +1763,7 @@ def cmd_component_update(a) -> str:
 
 
 _SKILL_OF = {"check": "instruction-check", "fix": "instruction-check", "condense": "instruction-check",
-             "draft": "instruction-draft", "xray": "conversation-xray", "sorry-triage": "sorry-triage",
+             "shorten-check": "instruction-check", "draft": "instruction-draft", "xray": "conversation-xray", "sorry-triage": "sorry-triage",
              "eval-triage": "eval-triage", "eval-compare": "eval-triage", "audit": "agent-audit", "plan": "ess-doctor",
              "rules": "ess-doctor", "practices": "ess-doctor", "topic-gen": "generate-workflows",
              "topic-check": "generate-workflows"}
@@ -1884,6 +1963,13 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--evalset", help="Where to write the Copilot Studio evaluation test set CSV")
     p.add_argument("--no-evalset", action="store_true", help="Don't write the evaluation test set")
     p.set_defaults(fn=cmd_fix)
+
+    p = sub.add_parser("shorten-check", help="Verify a shortened rewrite keeps every rule, variable, reference and quoted reply")
+    p.add_argument("original", help="The instructions before the rewrite (file, snapshot or export)")
+    p.add_argument("candidate", help="The rewritten instructions (text file)")
+    p.add_argument("--persona", **persona)
+    p.add_argument("--out", default="outputs/shortened_instructions.txt")
+    p.set_defaults(fn=cmd_shorten_check)
 
     p = sub.add_parser("condense", help="Shorten instructions to a character target without losing abilities")
     p.add_argument("instructions")

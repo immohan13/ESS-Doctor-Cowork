@@ -61,7 +61,7 @@ Every proposed change in the report is a `diff` code block: removed lines start 
 2. Then add **What matters most** in at most three short numbered points: the findings most likely behind the maker's complaint (quote the line number and what employees would ask that goes wrong), and whether the length leaves room for the recommended additions. Refer to findings by number ("finding 1") and to the practices only as "the recommended additions" or "the optional practices"; never number or list practices individually. Mention the optional practices in one line at most. Don't repeat the report's tables.
 3. Then one short **Next step** line offering the action:
    - **Fix**: offer exactly the choices the report's "To apply" line gives: findings by number, "fix recommended" or "fix all"; run `fix` with the matching `--rules`, show the report, and hand over `outputs/fixed_instructions.txt` as described in "Applying a fix".
-   - **Shorten**: when the length is near or over 8,000 characters as Copilot Studio counts them, run `condense`. It aims for 7,200 characters, leaving a 10% buffer under the 8,000 limit (`--target` changes it); run it before adding practices.
+   - **Shorten**: when the length is near or over 8,000 characters as Copilot Studio counts them, follow "Shorten to fit" below. It aims for 7,200 characters, leaving a 10% buffer under the 8,000 limit; run it before adding practices.
    - **Re-test**: the questions under "Test after fixing", in the evaluation test set.
 4. After a fix, run `check --no-evalset` again on the fixed file and confirm the high findings are gone.
 5. Whenever `outputs/evalset.csv` was written, share it as a downloadable file and tell the maker how to use it in four short steps: in Copilot Studio open the agent > **Evaluation** > **Create a test set** > upload the CSV; run it on the current version; publish the change and run it again; upload both results files here to compare them with `eval-compare`.
@@ -73,8 +73,24 @@ When the maker asks to fix ("fix 1", "fix recommended", "fix all", "apply the fi
 
 1. Run `fix` once with the same input file and agent type the check used: `--rules 1,2` with the finding numbers the maker named, `--rules recommended` for the findings plus the recommended additions (also "apply the fixes"), or `--rules all` for everything. When an X-ray or sorry triage saved a rule (`<!-- essdoctor-intake: <path> -->`) and the maker asked for it too, add `--draft <path>`: the rule is drafted into its section on the fixed text, in the same output file. Don't run it per item.
 2. Show the fix report as returned, as Markdown: **Done: already in the new instructions**, any practices that didn't fit, **What changed** (`diff` blocks), Still open and the evaluation test set. The report already re-checks the result and fits it under the 8,000-character limit: when the fixes go over, it tightens existing text and keeps every added line word for word; if that's not enough, it leaves out the lowest-priority practices and names them.
-3. Never edit the engine's output yourself: don't reword added lines so the check recognises them, move or merge sections, shorten lines by hand, or fix a finding the engine didn't apply. If a finding is under "Not done: needs your decision" or a practice didn't fit, say so and offer the next step: `condense` (shorten), then `fix` again, or the `instruction-draft` skill for a rule the maker wants worded differently.
-4. If you ran anything besides `fix` (for example `condense` or `draft`), say which in one line, so the maker knows which ESS Doctor step produced the result.
+3. Never edit the engine's output yourself: don't reword added lines so the check recognises them, move or merge sections, or fix a finding the engine didn't apply. The one exception is "Shorten to fit" below, which is verified by the engine. If a finding is under "Not done: needs your decision" or a practice didn't fit, say so and offer the next step: `fix` again, or the `instruction-draft` skill for a rule the maker wants worded differently.
+4. If the report says **Not ready to paste yet** (it contains `<!-- essdoctor-rewrite: … -->`), don't hand the file over: go straight to "Shorten to fit" with the paths in that comment, then hand over the shortened file instead.
+5. If you ran anything besides `fix` (for example `condense`, `shorten-check` or `draft`), say which in one line, so the maker knows which ESS Doctor step produced the result.
+
+## Shorten to fit
+
+Run this whenever instructions are over 8,000 characters as Copilot Studio counts them, or when a `fix`, `draft` or `condense` report contains `<!-- essdoctor-rewrite: original="…" start="…" -->`. Don't ask first: instructions over the limit can't be published as they are.
+
+1. Run `condense` (skip it if the comment already came from `condense`). If it reaches the target, you're done.
+2. Otherwise rewrite the file named in `start` into `outputs/shortened_candidate.txt`, aiming for about 7,200 characters. Only rewrite wording:
+   - Merge rules that say the same thing, trim long example lists to the two or three most useful examples, and tighten long sentences. Start with the longest lines.
+   - Keep word for word: every `{…}` variable and topic or agent reference, every quoted reply, URL, `#` heading and `- Label:` route label, and every line of the ESS core blocks (routing, grounding, retry).
+   - Keep every rule's meaning: don't drop a "never", "always", "must" or "only", don't add rules, don't change what a rule applies to.
+3. Run `python3 scripts/essdoctor.py shorten-check <original> outputs/shortened_candidate.txt --out outputs/shortened_instructions.txt`, where `<original>` is the file named in `original` (or the maker's file).
+4. If it says **Not yet**, restore what its "Restore these" list names and shorten other lines, then check again. Stop after three attempts and show the last check report with what's still missing.
+5. When it says **Passed**, show the check report, then hand over `outputs/shortened_instructions.txt` as described in "Applying a fix". Say in one line that the wording was shortened by ESS Doctor and verified by its shorten check.
+
+Never show or hand over a rewrite that hasn't passed `shorten-check`.
 
 Then hand the new instructions to the maker so their formatting survives the copy:
 
