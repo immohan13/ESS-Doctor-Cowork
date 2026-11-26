@@ -208,11 +208,13 @@ def _rule_length(doc: AgentDoc) -> list[Finding]:
     if n > DA_INSTRUCTION_LIMIT * 0.9:
         return [
             Finding(
-                "L0-HEADROOM", "medium", "L0 Platform limits", "platform",
-                f"Instructions are {n:,} characters, within 10% of the 8,000-character limit",
+                "L0-HEADROOM", "info", "L0 Platform limits", "platform",
+                f"Instructions are {n:,} characters: under the 8,000-character limit, above the recommended "
+                f"{int(DA_INSTRUCTION_LIMIT * 0.9):,} (a 10% buffer)",
                 [doc.instructions[0].no], f"{n:,} chars",
-                "The next edit or template update can push the agent over the limit." + note,
-                "Reserve headroom: move long procedures into skills or topic descriptions before adding more.",
+                "This is allowed. The buffer is guidance: it leaves room for later edits and template updates." + note,
+                f"Nothing to do now. Instructions ESS Doctor writes are kept under {int(DA_INSTRUCTION_LIMIT * 0.9):,} "
+                "characters.",
                 [], "KI-040",
             )
         ]

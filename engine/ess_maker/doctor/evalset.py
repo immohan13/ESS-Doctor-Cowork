@@ -91,3 +91,15 @@ def to_csv(rows: list[tuple[str, str]]) -> str:
 
 IMPORT_STEPS = ("Import it in Copilot Studio: open the agent > **Evaluation** > **Create a test set** (or **New "
                 "evaluation**) > upload the CSV, then run it before and after publishing the change.")
+
+# The same steps as a numbered list, for reports.
+def import_steps_md(change: str = "Paste the new instructions") -> list[str]:
+    return [
+        "1. In Copilot Studio, open the agent > **Evaluation** > **Create a test set** (or **New evaluation**) and upload the CSV.",
+        "2. Run it on the current version.",
+        f"3. {change}, publish, and run it again.",
+        "4. Upload both results files to ESS Doctor to compare them.",
+    ]
+
+
+IMPORT_STEPS_MD = import_steps_md()

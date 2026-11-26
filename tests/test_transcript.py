@@ -382,7 +382,11 @@ def test_check_report_orders_findings_and_splits_practice_gaps():
         assert essdoctor_cli.main(["check", "samples/inputs/contoso_instructions.txt", "--persona", "hr", "--no-evalset"]) == 0
     report = out.getvalue()
 
-    assert report.index("### Fix first") < report.index("### ESS core blocks") < report.index("**Optional:**")
+    assert (report.index("### Fix first") < report.index("### ESS core blocks") < report.index("### Optional practices")
+            < report.index("### What next"))
+    # Length guidance is a note, never a numbered finding; check alone writes no test set.
+    assert "ℹ️ **Instructions are" in report and "within 10%" not in report
+    assert "### Evaluation test set" not in report
     first = report.split("### Fix first", 1)[1].split("\n2. ", 1)[0]
     assert "🔴" in first and "**Employees see:**" in first and "**Fix:**" in first
     assert "**Proposed change:**" in report
@@ -766,6 +770,12 @@ def test_shorten_check_passes_only_when_nothing_is_lost():
         assert "**Passed.**" in reports["good"] and (Path(d) / "good_out.txt").exists()
         assert "**Not yet.**" in reports["bad"] and "### Restore these" in reports["bad"]
         assert not (Path(d) / "bad_out.txt").exists()
+        # Under the 8,000 limit but above the 7,200 target isn't a pass.
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            essdoctor_cli.main(["shorten-check", str(Path(d) / "o.txt"), str(Path(d) / "good.txt"), "--persona", "hr",
+                                "--target", "100", "--out", str(Path(d) / "t.txt")])
+        assert "**Not yet.**" in out.getvalue() and "above the 100 target" in out.getvalue()
 
 
 def test_plan_identifies_each_file_and_routes_to_plugin_skills():

@@ -222,8 +222,9 @@ _COVERS = {"L5-OVER-AUGMENTED-QUERY": ("BP-P17",), "L5-QUERY-REWRITE": ("BP-P17"
 
 
 def _check_items(doc: AgentDoc, base, cea: bool) -> tuple[list[dict], list[dict], list[dict], dict]:
-    """Findings, own practice gaps and template-shared gaps in report order (numbered 1..n across all three)."""
-    findings = [f.to_dict() for f in validate(doc, base) if not (cea and _cea_skip(f))]
+    """Findings, own practice gaps and template-shared gaps in report order. Info notes (what a file can't show,
+    length guidance) aren't numbered findings; `_notes` returns them."""
+    findings = [f.to_dict() for f in validate(doc, base) if not (cea and _cea_skip(f)) and f.severity != "info"]
     findings.sort(key=lambda f: (_ORDER.get(f["severity"], 9), f["origin"] == "template"))
     gaps, card = practices.check(doc)
     base_gaps = set(practices.check(base)[1]["gaps"]) if base else set()
@@ -233,6 +234,10 @@ def _check_items(doc: AgentDoc, base, cea: bool) -> tuple[list[dict], list[dict]
     own = [g.to_dict() for g in gaps if g.rule_id not in base_gaps]
     shared = [g.to_dict() for g in gaps if g.rule_id in base_gaps]
     return findings, own, shared, card
+
+
+def _notes(doc: AgentDoc, base) -> list[dict]:
+    return [f.to_dict() for f in validate(doc, base) if f.severity == "info"]
 
 
 def _write(path: str, text: str) -> None:
@@ -252,9 +257,10 @@ def _evalset(a, tests: list, beside: str = "") -> list[str]:
     _write(path, evalset.to_csv(rows))
     own = min(len(rows), len(evalset.rows_for(tests, include_golden=False)))
     return ["### Evaluation test set", "",
-            f"`{path}` has {len(rows)} questions: {own} for this change and {len(rows) - own} ESS regression and "
-            "grounding-hardening questions, "
-            "each with the expected response. " + evalset.IMPORT_STEPS, ""]
+            f"`{path}`: **{len(rows)} questions**, each with the expected response.", "",
+            "| For this change | ESS regression and grounding checks |", "| --- | --- |",
+            f"| {own} | {len(rows) - own} |", "",
+            "**How to use it**", ""] + evalset.IMPORT_STEPS_MD + [""]
 
 
 _DIFF_STATUS = {"added": "➕ Added", "removed": "➖ Removed", "modified": "✏️ Changed"}
@@ -376,6 +382,8 @@ def cmd_check(a) -> str:
           f"| {'❌' if over else '⚠️' if near else '✅'} {studio:,} of {DA_INSTRUCTION_LIMIT:,} ({raw:,} raw) "
           f"| {card['followed']} of {card['applicable']} followed | {core_cell} |",
           ""]
+    for n in _notes(doc, base):
+        md += [f"ℹ️ **{_cell(n['title'])}.** {_cell(n['fix'])}", ""]
     if a.previous:
         prev = load_agent(a.previous, "Previous version")
         prev_keys = {(f.rule_id, f.current) for f in validate(prev, base)}
@@ -411,7 +419,8 @@ def cmd_check(a) -> str:
         tests = sorted({p for f in findings if f["origin"] != "template" for p in f.get("test_prompts") or []})
         if tests:
             md += ["### Test after fixing", ""] + [f"- {t}" for t in tests[:12]] + [""]
-            md += _evalset(a, tests)
+            md += ["The fix writes these questions into an evaluation test set (`evalset.csv`), together with the new "
+                   "instructions they test.", ""]
     else:
         md += ["✅ No rule findings.", ""]
     if not cea:
@@ -435,17 +444,25 @@ def cmd_check(a) -> str:
     elif not shared:
         md += [f"✅ Authoring practices: all {card['applicable']} applicable ones are followed.", ""]
     if shared:
-        md += [f"**Optional:** {len(shared)} more practices the ESS template doesn't include either: "
-               + "; ".join(name(d) for d in shared) + ".", ""]
+        names = [name(d) for d in shared]
+        half = (len(names) + 1) // 2
+        md += ["### Optional practices", "",
+               f"{len(shared)} practices the ESS template doesn't include either. Add them only if you want to; "
+               "**\"fix all\"** includes them.", "", "| | |", "| --- | --- |"]
+        md += [f"| {names[i]} | {names[i + half] if i + half < len(names) else ''} |" for i in range(half)] + [""]
     choices = []
+    nums = ", ".join(str(i) for i in range(1, len(findings) + 1))
     if findings:
-        choices.append(f"**\"fix {', '.join(str(i) for i in range(1, min(len(findings), 3) + 1))}\"** for findings by number")
+        choices.append(f"- **\"fix {nums}\"**: applies {'finding' if len(findings) == 1 else 'findings'} {nums}.")
     if own:
-        choices.append("**\"fix recommended\"** for the findings plus the recommended additions")
+        choices.append("- **\"fix recommended\"**: the findings plus the recommended additions above.")
     if shared:
-        choices.append("**\"fix all\"** to include the optional practices too")
+        choices.append("- **\"fix all\"**: everything, including the optional practices.")
     if choices:
-        md += ["To apply, ask ESS Doctor: " + "; ".join(choices) + ".", ""]
+        md += ["### What next", "", "Reply with one of these:", ""] + choices + [
+            "",
+            f"Each fix gives you the complete new instructions, kept under {LENGTH_TARGET:,} characters (shortened if "
+            "needed, with nothing lost), and an evaluation test set for the change.", ""]
     if a.json:
         _write(a.json, json.dumps({"persona": persona, "cea": cea, "findings": findings, "practices": card,
                                    "numbers": {i: x["rule_id"] for i, x in enumerate(findings, 1)},
@@ -512,7 +529,7 @@ def cmd_fix(a) -> str:
     def attempt(rule_ids):
         r = fix(doc, base, rule_ids)
         fixed_len, shortened = studio_len(r["new_instructions"]), None
-        if fixed_len > DA_INSTRUCTION_LIMIT and not getattr(a, "no_condense", False):
+        if fixed_len > LENGTH_TARGET and not getattr(a, "no_condense", False):
             text, shortened = _keep_condense(doc, r["new_instructions"], base)
             if shortened:
                 new_doc = from_instructions(text, doc.name + " (fixed)", "fix")
@@ -546,8 +563,8 @@ def cmd_fix(a) -> str:
         r, fixed_len, shortened = attempt(ids)
     _write(a.out, r["new_instructions"])
     # Notes about what a file can't show, and the length (handled by the shortening step), aren't decisions.
-    r["manual"] = [x for x in r["manual"] if x.get("rule_id") != "L1-REFS-UNVERIFIED"
-                   and not (x.get("rule_id", "").startswith("L0-") and studio_len(r["new_instructions"]) > DA_INSTRUCTION_LIMIT)]
+    r["manual"] = [x for x in r["manual"] if x.get("rule_id") not in ("L1-REFS-UNVERIFIED", "L0-HEADROOM")
+                   and not (x.get("rule_id", "").startswith("L0-") and studio_len(r["new_instructions"]) > LENGTH_TARGET)]
     c = r["chars"]
     after = studio_len(r["new_instructions"])
     new_doc = from_instructions(r["new_instructions"], doc.name + " (fixed)", "fix")
@@ -560,8 +577,10 @@ def cmd_fix(a) -> str:
           f"{card['followed']} of {card['applicable']} authoring practices followed.", ""]
     written = len(r["applied"])
     if shortened and after < fixed_len:
-        md += [f"> ✂️ **Shortened automatically:** the fixes took the instructions to {fixed_len:,} characters, over the "
-               f"{DA_INSTRUCTION_LIMIT:,} limit, so the existing text was tightened to {after:,}. Every line the fix added "
+        md += [f"> ✂️ **Shortened automatically:** the fixes took the instructions to {fixed_len:,} characters, "
+               + (f"over the {DA_INSTRUCTION_LIMIT:,} limit" if fixed_len > DA_INSTRUCTION_LIMIT else
+                  f"above the recommended {LENGTH_TARGET:,}")
+               + f", so the existing text was tightened to {after:,}. Every line the fix added "
                "is kept word for word and every ESS ability is kept; review the changed lines under \"What changed\".", ""]
     if dropped:
         from ess_maker.doctor.practices import BY_ID
@@ -648,6 +667,11 @@ def cmd_fix(a) -> str:
                  "Copilot Studio would cut off the end. ESS Doctor shortens it next: it rewrites the longest lines and "
                  "checks that no rule, variable, topic reference or quoted reply is lost."
                  f'\n\n<!-- essdoctor-rewrite: original="{a.out}" start="{a.out}" -->')
+    elif final > LENGTH_TARGET:
+        md[3] = (f"**One more step before pasting:** {final:,} characters is under the limit but above the recommended "
+                 f"{LENGTH_TARGET:,}. ESS Doctor shortens it next, rewording the longest lines and checking that no "
+                 "rule, variable, topic reference or quoted reply is lost."
+                 f'\n\n<!-- essdoctor-rewrite: original="{a.out}" start="{a.out}" -->')
     else:
         md[3] = (f"**Your step:** copy the final instructions from `{a.out}` into Copilot Studio (Overview > "
                  "Instructions > Edit) and publish. ESS Doctor doesn't change the agent itself.")
@@ -674,14 +698,15 @@ def cmd_shorten_check(a) -> str:
     strict = re.compile(r"(?i)\b(never|do not|don'?t|always|must|only)\b")
     r0 = sum(1 for ln in orig.instruction_text.splitlines() if strict.search(ln))
     r1 = sum(1 for ln in text.splitlines() if strict.search(ln))
-    fits = n1 <= DA_INSTRUCTION_LIMIT
+    target = getattr(a, "target", None) or LENGTH_TARGET
+    fits = n1 <= target
     passed = fits and not lost
-    mark = "❌" if not fits else "⚠️" if n1 > LENGTH_TARGET else "✅"
+    mark = "❌" if n1 > DA_INSTRUCTION_LIMIT else "⚠️" if not fits else "✅"
     md = ["## Shorten check", "",
           ("✅ **Passed.** The shortened instructions keep everything the original does." if passed else
            "❌ **Not yet.** Fix what's listed below and check again."), "",
           "| Check | Result |", "| --- | --- |",
-          f"| Length | {n0:,} → {mark} {n1:,} of {DA_INSTRUCTION_LIMIT:,} |",
+          f"| Length | {n0:,} → {mark} {n1:,} (target {target:,}, limit {DA_INSTRUCTION_LIMIT:,}) |",
           "| Rules, variables, topic references, quoted replies, sections, ESS core blocks, practices | "
           + ("✅ all kept" if not lost else "❌ " + "; ".join(f"{k}: {len(v)}" for k, v in lost.items())) + " |",
           f"| Lines with never / always / must / only | {r0} → {r1}"
@@ -693,7 +718,7 @@ def cmd_shorten_check(a) -> str:
                    + (f" and {len(v) - 8} more" if len(v) > 8 else "")]
         md.append("")
     if not fits:
-        md += [f"Still {n1 - DA_INSTRUCTION_LIMIT:,} characters over the limit: shorten more lines.", ""]
+        md += [f"Still {n1 - target:,} characters above the {target:,} target: shorten more lines.", ""]
     if passed:
         _write(a.out, text)
         md += [f"The shortened instructions are in `{a.out}`.", "",
@@ -894,6 +919,10 @@ def _draft_report(a, intake, r: dict, before: int, shortened: dict | None = None
         md.append("")
     md += _evalset(a, tests, a.out)
     md += ["### What changed", "", _diff_md(r.get("diff") or {}), ""]
+    if after > LENGTH_TARGET:
+        md += [f"**One more step before pasting:** {after:,} characters is above the recommended {LENGTH_TARGET:,}. "
+               "ESS Doctor shortens it next and checks that the new rule and everything else are kept.", "",
+               f'<!-- essdoctor-rewrite: original="{a.out}" start="{a.out}" -->', ""]
     return "\n".join(md)
 
 
@@ -1546,7 +1575,7 @@ def cmd_topic_gen(a) -> str:
            *([f"- `{out / cfg[0]}`: the template configuration record."] if cfg else []),
            f"- `{out / 'SKILL.md'}`: the same scenario as an agent skill, for when it moves from a topic to a skill.",
            f"- `{out / 'evalset.csv'}`: {len(rows)} test questions (the trigger phrases, and what the topic must not "
-           "handle). " + evalset.IMPORT_STEPS, ""]
+           "handle).", "", "**How to use the test set**", ""] + evalset.import_steps_md("Add the topic") + [""]
     return "\n".join(md)
 
 
@@ -1968,6 +1997,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("original", help="The instructions before the rewrite (file, snapshot or export)")
     p.add_argument("candidate", help="The rewritten instructions (text file)")
     p.add_argument("--persona", **persona)
+    p.add_argument("--target", type=int, default=LENGTH_TARGET,
+                   help="Length to reach, as Copilot Studio counts it (default: 10%% under the 8,000 limit)")
     p.add_argument("--out", default="outputs/shortened_instructions.txt")
     p.set_defaults(fn=cmd_shorten_check)
 

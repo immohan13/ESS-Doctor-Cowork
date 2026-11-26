@@ -66,7 +66,7 @@ The report's **What changed** section shows each changed section as a `diff` cod
 3. Run `check --no-evalset` on the final file. If it introduced a high finding, say so plainly, propose a narrower wording in the same section and re-run. You may suggest clearer wording for the added clause, but re-run `check` on any edited version before offering it.
 4. Then add **What to check** in at most three bullets: what the report flags, any assumption you made (for example how the agent knows who the rule applies to), and whether the new rule's subject or source name overlaps a restriction already in the instructions (for example a source whose name contains a restricted word). Don't repeat the report's tables.
 5. Then **Final instructions**: print the final file (`cat`) and show its full content, unchanged, inside one fenced code block marked `text`. Put it last so the maker doesn't scroll past it, with the copy steps from "Applying" in one line under it.
-6. Share `outputs/evalset.csv` (and the instructions file) as downloadable files, with the four import steps: in Copilot Studio open the agent > **Evaluation** > **Create a test set** > upload the CSV; run it on the current version; publish the change and run it again; upload both results files here to compare them with `eval-compare`.
+6. Share `outputs/evalset.csv` (and the instructions file) as downloadable files. The report's **How to use it** steps explain the test set; show them as returned, as a numbered list.
 7. Keep it scannable: no headings beyond "What to check" and "Final instructions", bold only key numbers, and no emoji beyond those in the report.
 
 ## Applying
@@ -77,5 +77,5 @@ The maker pastes the new instructions in Copilot Studio (**Overview > Instructio
 
 ## Rules
 
-- Stay within 8,000 characters as Copilot Studio counts them, ideally 7,200 (a 10% buffer); `draft` shortens automatically when it goes over.
+- Stay within 8,000 characters as Copilot Studio counts them (the hard limit); what ESS Doctor writes aims for 7,200 (a 10% buffer). `draft` shortens automatically, and when it's still above 7,200 the report ends with the shortening step (`essdoctor-rewrite`); follow `instruction-check`'s "Shorten to fit".
 - Don't remove or rewrite the ESS core blocks (routing, grounding, tool use) to make room for a change.

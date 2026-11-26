@@ -11,7 +11,7 @@ NOTE = ("ESS Doctor's rules are field guidance from the ESS templates and review
 # ESS core blocks, conflicts, routing, search, tool calls, safety, then style.
 INSTRUCTION_RULES: dict[str, tuple[str, str]] = {
     "L0-LENGTH": ("Length and limits", "Instructions over the 8,000-character limit (Copilot Studio cuts off the end)"),
-    "L0-HEADROOM": ("Length and limits", "Instructions within 10% of the 8,000-character limit"),
+    "L0-HEADROOM": ("Length and limits", "Note: instructions above the recommended 7,200 characters (guidance, not a finding)"),
     "L0-SELF-REPORTING": ("Length and limits", "The agent is asked to report or show its own steps or reasoning"),
     "L1-REFS-UNVERIFIED": ("References", "Topic references that can't be checked from an instructions-only file"),
     "L1-TOPIC-MISSING": ("References", "A referenced topic isn't in the agent"),

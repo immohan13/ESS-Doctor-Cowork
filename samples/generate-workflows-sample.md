@@ -144,7 +144,14 @@ Add a row to the **Employee Self Service Template Configuration** table with uni
 - `outputs/topic/topic.yaml`: the topic above.
 - `outputs/topic/msdyn_HRWorkdayHCMEmployeeGetEducation.xml`: the template configuration record.
 - `outputs/topic/SKILL.md`: the same scenario as an agent skill, for when it moves from a topic to a skill.
-- `outputs/topic/evalset.csv`: 7 test questions (the trigger phrases, and what the topic must not handle). Import it in Copilot Studio: open the agent > **Evaluation** > **Create a test set** (or **New evaluation**) > upload the CSV, then run it before and after publishing the change.
+- `outputs/topic/evalset.csv`: 7 test questions (the trigger phrases, and what the topic must not handle).
+
+**How to use the test set**
+
+1. In Copilot Studio, open the agent > **Evaluation** > **Create a test set** (or **New evaluation**) and upload the CSV.
+2. Run it on the current version.
+3. Add the topic, publish, and run it again.
+4. Upload both results files to ESS Doctor to compare them.
 
 
-<!-- essdoctor: version=2.12.4 skill=generate-workflows command=topic-gen -->
+<!-- essdoctor: version=2.12.5 skill=generate-workflows command=topic-gen -->

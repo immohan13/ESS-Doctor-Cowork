@@ -45,7 +45,7 @@ python3 scripts/essdoctor.py practices
 - Pass `--agent-type cea` for a custom engine agent (for example when the maker is working from sessions, transcripts or Application Insights logs) and `--agent-type da` for a declarative agent. A test pane snapshot or `botContent.yml` is treated as a custom engine agent automatically. Custom engine agents aren't checked for the declarative agent core blocks, because their template routes, grounds and retries through topics.
 - `--rules` takes finding numbers from the check report (for example `1,2`), `recommended` (the findings plus the report's **Recommended additions**) or `all` (also the optional practices). Only findings are numbered; practices are never addressed by number.
 - A line starting with `ERROR:` on stderr means the input can't be used; tell the maker what the message asks for.
-- `check` (when it has questions to test), `fix` and `condense` also write `outputs/evalset.csv`: a Copilot Studio evaluation test set for the change, with ESS regression questions and an expected response for each. When you re-run `check` on a fixed or shortened file, add `--no-evalset` so it keeps the set the fix wrote.
+- `fix`, `draft` and `condense` also write `outputs/evalset.csv`: a Copilot Studio evaluation test set for the change, with ESS regression questions and an expected response for each. `check` doesn't write one: a test set only makes sense with the new instructions it tests. The check lists the questions under "Test after fixing"; the fix puts them in the test set.
 
 ## Respond
 
@@ -57,15 +57,13 @@ When the maker keeps adding rules to fix individual answers, suggest the evaluat
 
 Every proposed change in the report is a `diff` code block: removed lines start with `-` (red) and added lines with `+` (green). That covers **What changed**, the **Proposed change** under each finding (the change `fix` would make for that rule) and the single **Recommended additions** change for the authoring practices. Keep those blocks exactly as returned, including the `diff` language tag and their indentation, so the colors render; don't turn them into tables or prose.
 
-1. Show the engine's Markdown report as returned, as Markdown (not in a code block), so its tables and numbered findings render. Don't rewrite, reorder or drop findings, and don't add findings of your own.
-2. Then add **What matters most** in at most three short numbered points: the findings most likely behind the maker's complaint (quote the line number and what employees would ask that goes wrong), and whether the length leaves room for the recommended additions. Refer to findings by number ("finding 1") and to the practices only as "the recommended additions" or "the optional practices"; never number or list practices individually. Mention the optional practices in one line at most. Don't repeat the report's tables.
-3. Then one short **Next step** line offering the action:
-   - **Fix**: offer exactly the choices the report's "To apply" line gives: findings by number, "fix recommended" or "fix all"; run `fix` with the matching `--rules`, show the report, and hand over `outputs/fixed_instructions.txt` as described in "Applying a fix".
-   - **Shorten**: when the length is near or over 8,000 characters as Copilot Studio counts them, follow "Shorten to fit" below. It aims for 7,200 characters, leaving a 10% buffer under the 8,000 limit; run it before adding practices.
-   - **Re-test**: the questions under "Test after fixing", in the evaluation test set.
+1. Show the engine's Markdown report as returned, as Markdown (not in a code block), so its tables, numbered findings and its **What next** section render. Don't rewrite, reorder or drop findings, and don't add findings of your own.
+2. Insert **What matters most** just before the report's **What next** section, in at most three short numbered points: the findings most likely behind the maker's complaint (quote the line number and what employees would ask that goes wrong). Refer to findings by number ("finding 1") and to the practices only as "the recommended additions" or "the optional practices"; never number or list practices individually. Don't repeat the report's tables.
+   - Length: 8,000 characters is the only hard limit. The 7,200 buffer is a recommendation: never call it a finding, a blocker or something that must come first. Mention length only if it's over 8,000, and then say the fix shortens it.
+3. Don't add a separate "Next step" line: the report's **What next** is the next step, and it must stay the last part of the report, after What matters most. When the maker replies with a choice, run `fix` with the matching `--rules`, show the report, and hand over the instructions as described in "Applying a fix".
 4. After a fix, run `check --no-evalset` again on the fixed file and confirm the high findings are gone.
-5. Whenever `outputs/evalset.csv` was written, share it as a downloadable file and tell the maker how to use it in four short steps: in Copilot Studio open the agent > **Evaluation** > **Create a test set** > upload the CSV; run it on the current version; publish the change and run it again; upload both results files here to compare them with `eval-compare`.
-6. Keep it scannable: no headings beyond the two above, bold only key numbers and line references, and no emoji beyond those in the report. Refer to findings by their number and title, never by internal rule IDs (such as `L5-…` or `BP-…`) or practice codes (such as P10); makers don't need them. Line numbers are lines in the Copilot Studio instructions box.
+5. Whenever `outputs/evalset.csv` was written (only after `fix`, `draft` or `condense`), share it as a downloadable file. The report already lists the steps to use it; don't repeat them.
+6. Keep it scannable: no headings beyond What matters most, bold only key numbers and line references, and no emoji beyond those in the report. Refer to findings by their number and title, never by internal rule IDs (such as `L5-…` or `BP-…`) or practice codes (such as P10); makers don't need them. Line numbers are lines in the Copilot Studio instructions box.
 
 ## Applying a fix
 
@@ -79,7 +77,7 @@ When the maker asks to fix ("fix 1", "fix recommended", "fix all", "apply the fi
 
 ## Shorten to fit
 
-Run this whenever instructions are over 8,000 characters as Copilot Studio counts them, or when a `fix`, `draft` or `condense` report contains `<!-- essdoctor-rewrite: original="…" start="…" -->`. Don't ask first: instructions over the limit can't be published as they are.
+Run this whenever instructions are over 8,000 characters as Copilot Studio counts them, or when a `fix`, `draft` or `condense` report contains `<!-- essdoctor-rewrite: original="…" start="…" -->` (instructions ESS Doctor writes go above the recommended 7,200). Don't ask first.
 
 1. Run `condense` (skip it if the comment already came from `condense`). If it reaches the target, you're done.
 2. Otherwise rewrite the file named in `start` into `outputs/shortened_candidate.txt`, aiming for about 7,200 characters. Only rewrite wording:

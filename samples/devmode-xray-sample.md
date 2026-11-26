@@ -78,4 +78,4 @@ WHAT THIS CARD CAN'T SEE
 - Steps inside Copilot Studio topics or flows after the action was called.
 ```
 
-<!-- essdoctor: version=2.12.4 skill=conversation-xray command=xray -->
+<!-- essdoctor: version=2.12.5 skill=conversation-xray command=xray -->

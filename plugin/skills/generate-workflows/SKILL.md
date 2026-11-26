@@ -52,7 +52,7 @@ For `topic-gen`:
 2. Show the **Topic** section with its `yaml` code block unchanged, so the maker copies it with the code block's **Copy** button into the topic's code editor. Never send them to the file preview.
 3. Show the **Template configuration** section with its code block unchanged, and the one line on where to add it.
 4. Show **Check before importing** as a short checklist (`- [ ]`): these are the values only the maker can confirm (Workday operation, ServiceNow table, knowledge sources, the system-topic prefix of their agent).
-5. Say in one line that `SKILL.md` has the same scenario as an agent skill, and share `evalset.csv` with the four import steps.
+5. Say in one line that `SKILL.md` has the same scenario as an agent skill, and share `evalset.csv` with the report's **How to use the test set** steps.
 6. End with **What next? Reply with one of these:** "generate another topic", "check my existing topics" (upload a snapshot or bot content export), or "make it a declarative agent topic" (re-run with `--agent-type da`).
 
 For `topic-check`, show the report as returned (Markdown table), then at most three bullets on what to fix first. Offer to regenerate a flagged topic with `topic-gen` from the same scenario.
