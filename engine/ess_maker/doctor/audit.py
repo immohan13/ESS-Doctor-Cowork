@@ -425,9 +425,11 @@ def audit(agents: list[Agent]) -> dict:
                             f"a model that reads each source's description; {len(generic)} of {len(active)} have no description "
                             "or a generic one, so the right source can be filtered out, and every request pays for the "
                             "extra selection step." + (f" {merge} page-level source(s) share a site with another source." if merge else ""),
-                            "Consolidate to one source per SharePoint site" + (f" (about {len(active) - merge} sources)" if merge else "")
-                            + ", write a description for each that names the subjects it covers, and scope sensitive or "
-                            "high-volume subjects to a topic that searches only the source that owns them. Proposed "
+                            "Keep them as agent knowledge (the standard ESS setup: SharePoint sites and the ServiceNow "
+                            "knowledge connector), but consolidate to one source per SharePoint site"
+                            + (f" (about {len(active) - merge} sources)" if merge else "")
+                            + " and write a description for each that names the subjects it covers, so the right "
+                            "source survives the filtering. Proposed "
                             "descriptions to start from are below; add the main subjects each source covers.",
                             where=f"{a.name} > Knowledge > each source > Description",
                             proposals=[(k.name, k.description.strip() or "(none)", _propose_source(k)) for k in generic]))
@@ -537,19 +539,17 @@ def audit(agents: list[Agent]) -> dict:
             connectors = [k.name for k in active if k.target.startswith("connector:")]
             primary = connectors[0] if connectors else "your main knowledge source"
             dom = a.persona.upper() or "HR"
-            gaps.append(Gap("A20-NO-SCOPED-SEARCH-TOPIC", "high" if len(active) > KNOWLEDGE_FILTER_LIMIT else "medium",
-                            [a.name], "No topic that answers from the main knowledge source",
-                            f"Every question is answered by generative orchestration choosing among {len(active)} knowledge "
-                            "sources, which often searches two or three times before answering. Each search adds several "
-                            "seconds and more documents to read. A topic that searches only the main source answers with "
-                            "one search.",
-                            f"Add one topic for general {dom} questions that searches only {primary}. Widen it only if evaluations show content is missing, and compare answer quality as well as speed.",
-                            where=f"{a.name} > Topics",
-                            change=["+ Topics > Add a topic > From blank",
-                                    f"+ Description: the main {dom} subjects employees ask about "
-                                    "(benefits, pay, leave, holidays, policies)",
-                                    "+ Add a node: Create generative answers",
-                                    f"+ Knowledge: only {primary}"]))
+            gaps.append(Gap("A20-NO-SCOPED-SEARCH-TOPIC", "low", [a.name],
+                            f"{len(active)} knowledge sources searched on every question (speed)",
+                            f"With {len(active)} agent-level knowledge sources, generative orchestration picks which to "
+                            "search for each question and often searches two or three times, each search adding several "
+                            "seconds. That's the standard ESS setup; consolidating the sources and describing them (the "
+                            "knowledge source gap above) is the first fix.",
+                            f"Only if answers are still slow after that: a topic for general {dom} questions whose "
+                            f"generative answers step searches just {primary} answers with one search. It bypasses the "
+                            "agent's choice of sources for those questions, so run the evaluation set before and after "
+                            "and keep it only if answers stay as complete.",
+                            optional=True))
 
     def base_name(x: Agent) -> str:
         n = re.sub(r"(?i)[\s_\-\(\[]*(qa|uat|test|dev|sandbox|prod|production|preprod|stage|staging)[\)\]]?\b", " ", x.name)

@@ -44,7 +44,7 @@ Across the agents:
 | Model settings that differ, general knowledge or web search on | Safety and answers depend on which agent responds |
 | Content moderation Low, or different across agents (optional) | Suggests Medium everywhere; higher levels can block more answers, so test with the evaluation set first |
 | Workday user context still on the legacy ISU + RaaS topic | Every new session waits several seconds before the first answer; the simplified setup makes one `/workers/me` call per session |
-| More than 10 knowledge sources and no general search-and-answer topic scoped to the main source | Generative orchestration can search two or three times per question, each search adding several seconds |
+| More than 10 knowledge sources searched on every question (optional) | Generative orchestration can search two or three times per question. Consolidating and describing the sources comes first; a topic scoped to the main source is only a speed trade-off to test |
 | Two exports of the same agent (for example QA and production) with different topics or knowledge | Latency and quality measured in one environment don't carry over to the other |
 | A routing table or topic map used as a knowledge source | Every question costs an extra search before it's routed, so answers slow down and can time out; the same sources on the hub double the searches and can produce duplicate or empty replies |
 | A child agent's topic counts attempts with a global variable | Variables don't carry over between hub calls, so the count resets and the topic always acts like the first request |

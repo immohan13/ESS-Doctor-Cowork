@@ -581,9 +581,8 @@ def diagnose(doc: dict, question: str = "") -> dict:
                                                                          if turn_searches and turn_searches > 1 else "") + ".")
             steps.append("Speed up answers: " + ("several searches ran one after another, each adding several seconds. "
                                                  if (turn_searches or 0) >= 2 else "")
-                         + "Route the main HR subjects to a search-and-answer topic scoped to the primary knowledge source, "
-                         "keep the instructions to one search with at most one retry, and reduce overlapping knowledge "
-                         "sources. Run the agent audit for the details.")
+                         + "Keep the instructions to one search with at most one retry, and consolidate and describe the "
+                         "knowledge sources so fewer of them are searched. Run the agent audit for the details.")
     if start_s is not None:
         details["sessionStart"] = f"{start_s:.1f} s"
         if start_s >= 5 and workday_ctx:

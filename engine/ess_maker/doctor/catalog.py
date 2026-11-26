@@ -77,7 +77,7 @@ AUDIT_CHECKS: dict[str, tuple[str, str]] = {
     "A17-MODERATION-BELOW-TEMPLATE": ("Settings", "Content moderation Low or different across agents (optional)"),
     "A18-MODEL-SETTINGS-DIFFER": ("Settings", "Model settings that differ between the hub and children"),
     "A19-WORKDAY-LEGACY-USER-CONTEXT": ("Speed", "Workday user context on the legacy setup (slow session start)"),
-    "A20-NO-SCOPED-SEARCH-TOPIC": ("Speed", "No topic that answers from the main knowledge source"),
+    "A20-NO-SCOPED-SEARCH-TOPIC": ("Speed", "Many knowledge sources searched on every question (optional speed trade-off)"),
     "A21-ENVIRONMENT-DRIFT": ("Speed", "Two environments of the same agent set up differently"),
     "A22-ROUTING-TABLE-KNOWLEDGE": ("Configuration", "A routing table or topic map used as a knowledge source"),
     "A23-SESSION-STATE-IN-CHILD": ("Configuration", "A child agent's topic counts attempts with a global variable"),

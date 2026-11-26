@@ -1291,7 +1291,7 @@ def cmd_audit(a) -> str:
     for x in sorted(agents, key=lambda x: (role.get(id(x), "Other") != "Hub", role.get(id(x), "Other") != "Child", x.name)):
         fs = checks.get(id(x), [])
         sev = " · ".join(f"{_SEV[s]} {n}" for s in ("high", "medium") if (n := sum(1 for f in fs if f.severity == s)))
-        ks = f"{len(x.knowledge)}" + (" ??" if len([k for k in x.knowledge if k.active]) > audit.KNOWLEDGE_FILTER_LIMIT else "")
+        ks = f"{len(x.knowledge)}" + (" ⚠️" if len([k for k in x.knowledge if k.active]) > audit.KNOWLEDGE_FILTER_LIMIT else "")
         md.append(f"| **{_cell(x.name)}** | {role.get(id(x), 'Other')} | {ks if x.full_export else '—'} | "
                   f"{sum(1 for t in x.topics if t.active and t.searches) if x.full_export else '—'} | "
                   f"{len(x.connected) or len(x.instruction_refs) or '—'} | "
